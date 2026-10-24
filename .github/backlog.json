@@ -520,6 +520,77 @@
       ],
       "labels": ["user story", "accounts"],
       "milestone": "Phase 3: Accounts"
+    },
+    {
+      "title": "Stay signed in until I sign out",
+      "story": "As a user, I want to stay signed in until I choose to sign out, so that I don't have to sign in again every time I open the app.",
+      "criteria": [
+        "Still signed in after the server restarts, and after weeks away",
+        "Only Sign out signs you out",
+        "The long-lasting sign-in cookie can't be forged, and page scripts can't read it"
+      ],
+      "labels": ["user story", "accounts"],
+      "milestone": "Phase 3: Accounts",
+      "done": true
+    },
+    {
+      "title": "See who has an account",
+      "story": "As the app's administrator, I want to see how many people have accounts and how to reach them, so that I can look after the people using the app.",
+      "criteria": [
+        "A Members page that only administrators can open",
+        "The number of accounts, and each member's name, email, phone number, how they sign in and when they joined",
+        "Download the list as a spreadsheet",
+        "Passwords are never shown: only one-way hashes of them are stored"
+      ],
+      "labels": ["user story", "accounts"],
+      "milestone": "Phase 3: Accounts",
+      "done": true
+    },
+    {
+      "title": "Choose my patron saint's feast day",
+      "story": "As a parishioner, I want to choose my patron saint's feast day as a month and a day, so that the app wishes me a happy name day every year.",
+      "criteria": [
+        "The feast day is chosen right under the patron saint in Profile",
+        "A month and a day, with no year",
+        "A greeting on Home on that day"
+      ],
+      "labels": ["user story", "accounts"],
+      "milestone": "Phase 3: Accounts",
+      "done": true
+    },
+    {
+      "title": "Choose a reading voice",
+      "story": "As a listener, I want a short choice of clear voices, so that reading aloud sounds good without sorting through dozens of voices.",
+      "criteria": [
+        "Three voices: David, Mark and Zira on Windows, and three American voices on other devices",
+        "No novelty voices",
+        "Plain Listen, Pause, Resume and Stop buttons"
+      ],
+      "labels": ["user story", "liturgics"],
+      "milestone": "Phase 1: Liturgics",
+      "done": true
+    },
+    {
+      "title": "Read the app's privacy policy",
+      "story": "As a user, I want to read what the app keeps about me and why, so that I can trust it with my account.",
+      "criteria": [
+        "A plain page at /privacy",
+        "Linked from the sign-in page, Profile and Google's sign-in screen"
+      ],
+      "labels": ["developer task", "accounts"],
+      "milestone": "Phase 3: Accounts",
+      "done": true
+    },
+    {
+      "title": "Two-step verification after launch",
+      "story": "As a user, I want an optional second step when signing in, so that a stolen password alone can't open my account.",
+      "criteria": [
+        "Decide which methods to offer (authenticator app, text message, email)",
+        "Optional for each person"
+      ],
+      "notes": "Built in October 2026 (an authenticator app, and codes by text or email), then taken out on 2026-10-24 until after launch. The last version is in commit a65d129.",
+      "labels": ["user story", "accounts"],
+      "milestone": "Phase 3: Accounts"
     }
   ]
 }
