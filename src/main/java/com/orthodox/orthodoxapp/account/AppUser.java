@@ -49,22 +49,18 @@ public class AppUser {
     private String displayName;
 
     // Optional, in international "E.164" format, e.g. +12145550123.
+    // Not checked with a code: we simply keep the number the person gives us.
     private String phoneNumber;
 
-    // True once the person has proved they own the email / phone with a code.
+    // True once Google has confirmed that this person owns the email (see
+    // AuthService.signInWithGoogle). Emails typed when creating an account
+    // aren't checked, so they stay false.
     // @ColumnDefault: the value the database gives existing rows when a
     // column is added later. A number or true/false column must always
     // have one, or adding it to a table that already has accounts fails
     // (that broke signing in on 2026-10-24; EntityColumnsTest checks it).
     @ColumnDefault("false")
     private boolean emailVerified;
-    @ColumnDefault("false")
-    private boolean phoneVerified;
-
-    // @Enumerated(STRING) saves the name ("EMAIL"), which stays readable in the table.
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private TwoFactorMethod twoFactorMethod = TwoFactorMethod.NONE;
 
     // The unchanging account ID Google gives us ("sub" in its tokens).
     @Column(unique = true)
@@ -75,13 +71,9 @@ public class AppUser {
     private int failedSignIns;
     private Instant lockedUntil;
 
-    // The authenticator app (see AuthenticatorService and Totp): the secret
-    // shared with the app, the last 30-second step whose code was used (so a
-    // code can't be used twice), and wrong codes in a row.
-    private String totpSecret;
-    private Long totpLastStep;
-    @ColumnDefault("0")
-    private int failedCodes;
+    // (Two-step verification was taken out on 2026-10-24. Its old columns,
+    // such as two_factor_method, are still in the database but unused; see
+    // DatabaseFixes for how new accounts get by without them.)
 
     // ----- Profile and preferences (added in Session 2) -----
     // These columns were added to a table that may already have rows, so
@@ -90,7 +82,8 @@ public class AppUser {
 
     private String patronSaint;
 
-    // The feast day of your patron saint, as "MM-DD" (e.g. "12-06" for St Nicholas).
+    // Your patron saint's feast day (your "name day"), as "MM-DD": a month
+    // and day without a year, e.g. "12-06" for St Nicholas.
     private String nameDay;
 
     // Free text for now; becomes a link to a Parish once the parish finder exists.
@@ -152,23 +145,6 @@ public class AppUser {
         lockedUntil = null;
     }
 
-    /**
-     * Counts a wrong two-step code. Kept apart from wrong passwords, because
-     * someone who knows the password must not be able to reset this count by
-     * signing in again and again.
-     */
-    public void recordFailedCode(Instant now, int maxAttempts, Duration lockTime) {
-        failedCodes++;
-        if (failedCodes >= maxAttempts) {
-            lockedUntil = now.plus(lockTime);
-            failedCodes = 0;
-        }
-    }
-
-    public void clearFailedCodes() {
-        failedCodes = 0;
-    }
-
     // ----- Getters and setters -----
 
     public Long getId() { return id; }
@@ -187,20 +163,8 @@ public class AppUser {
     public boolean isEmailVerified() { return emailVerified; }
     public void setEmailVerified(boolean emailVerified) { this.emailVerified = emailVerified; }
 
-    public boolean isPhoneVerified() { return phoneVerified; }
-    public void setPhoneVerified(boolean phoneVerified) { this.phoneVerified = phoneVerified; }
-
-    public TwoFactorMethod getTwoFactorMethod() { return twoFactorMethod; }
-    public void setTwoFactorMethod(TwoFactorMethod twoFactorMethod) { this.twoFactorMethod = twoFactorMethod; }
-
     public String getGoogleId() { return googleId; }
     public void setGoogleId(String googleId) { this.googleId = googleId; }
-
-    public String getTotpSecret() { return totpSecret; }
-    public void setTotpSecret(String totpSecret) { this.totpSecret = totpSecret; }
-
-    public Long getTotpLastStep() { return totpLastStep; }
-    public void setTotpLastStep(Long totpLastStep) { this.totpLastStep = totpLastStep; }
 
     public Instant getCreatedAt() { return createdAt; }
 

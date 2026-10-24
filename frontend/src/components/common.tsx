@@ -5,13 +5,13 @@ import { Fragment } from 'react'
 import { listenSupported, play } from '../lib/listen'
 import type { Account } from '../types'
 
-/** A "🔊 Listen" button that reads the given text aloud with the device's voice. */
+/** A "Listen" button that reads the given text aloud with the device's voice. */
 export function ListenButton({ title, text }: { title: string; text: () => string }) {
   if (!listenSupported) return null
   // "text" is a function so the (possibly long) text is only built when clicked.
   return (
     <button type="button" className="listen" onClick={() => play(title, text())}>
-      🔊 Listen
+      Listen
     </button>
   )
 }
@@ -32,7 +32,6 @@ export interface MessageData {
   kind: 'error' | 'info'
   text: string
   problems?: string[] // e.g. password rules that weren't met
-  developmentMode?: boolean // a code was printed in the backend's terminal, not sent
 }
 
 /** A red (error) or green (info) message box. */
@@ -47,12 +46,6 @@ export function Message({ message }: { message: MessageData | null }) {
             <li key={problem}>{problem}</li>
           ))}
         </ul>
-      )}
-      {message.developmentMode && (
-        <span className="dev">
-          Development mode: codes aren't really sent yet. Find this one in the VS Code terminal where the backend is
-          running.
-        </span>
       )}
     </div>
   )

@@ -7,8 +7,10 @@ import org.springframework.http.HttpStatus;
  * PhoneNumbers: tidies up phone numbers people type.
  *
  * People write numbers in many ways: "(214) 555-0123", "214.555.0123",
- * "+1 214 555 0123". Text-message services want one exact format called
- * E.164: a "+", the country code, then the number with no spaces: +12145550123.
+ * "+1 214 555 0123". We save every number in one exact format, called
+ * E.164: a "+", the country code, then the number with no spaces:
+ * +12145550123. (It's also what text-message services want, if the app
+ * ever sends texts.)
  *
  * Numbers without a "+" are treated as US numbers, since most of the
  * Antiochian Archdiocese is in the US. Other countries start with "+".
@@ -42,10 +44,5 @@ public final class PhoneNumbers {
                     "Enter a valid phone number, like (214) 555-0123, or +44 20 7946 0958 outside the US.");
         }
         return cleaned;
-    }
-
-    /** "+12145550123" -> "•••• 0123", so a screen never shows the whole number. */
-    public static String mask(String phone) {
-        return "•••• " + phone.substring(phone.length() - 4);
     }
 }

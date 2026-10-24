@@ -8,7 +8,7 @@
       data-style = illuminated | mosaic | vigil | athos | seasons
       data-mode  = light | dark
       data-season = lent | pascha | ... (only used by "seasons")
-      data-text-size = normal | large | larger
+      data-text-size = small | normal | large
 
   THE VARIABLES
       --bg, --surface        page background, card background
@@ -290,8 +290,9 @@
 :root[data-style="seasons"][data-season="theophany"],
 :root[data-style="seasons"][data-season="transfiguration"] { --season: #3e6e8c; --season-light: #a9cde2; }
 
-/* ---- Text size ----
+/* ---- Text size: Small, Normal or Large ----
    Pages size their text in "rem" (a multiple of the root font size), so
-   making the root bigger makes ALL the text bigger together. */
-:root[data-text-size="large"] { font-size: 112.5%; }
-:root[data-text-size="larger"] { font-size: 125%; }
+   making the root bigger makes ALL the text bigger together. ("larger" was
+   the old name of the biggest size, still saved in some browsers.) */
+:root[data-text-size="small"] { font-size: 90%; }
+:root[data-text-size="large"], :root[data-text-size="larger"] { font-size: 120%; }

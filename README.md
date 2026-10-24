@@ -10,10 +10,9 @@ One codebase is planned to run on the web, Windows, macOS, Linux, Android and iO
 
 > **Status:** early development (v0.3). The liturgical calendar works for any
 > date, with full scripture text, saints' lives and a fasting rule engine.
-> Accounts work too: email and password with strong password rules, an
-> optional phone number, two-step verification with an authenticator app
-> (or by text or email, once those are set up), and Google sign-in ready to
-> switch on. See the [Roadmap](#roadmap) below.
+> Accounts work too: Google sign-in, or email and password with strong
+> password rules, an optional phone number, and you stay signed in until you
+> sign out. See the [Roadmap](#roadmap) below.
 >
 > **Try it: [orthodox-daily.onrender.com](https://orthodox-daily.onrender.com)**
 > (on Render's free plan, so the first visit after a quiet spell takes about
@@ -31,15 +30,17 @@ One codebase is planned to run on the web, Windows, macOS, Linux, Android and iO
 | **Daily liturgical calendar** | Feast or saint, week title, tone and commemorations for any date | ✅ Working |
 | **Scripture readings** | The day's Epistle and Gospel with full verse text, matching antiochian.org | ✅ Working |
 | **Lives of the saints** | The story of each saint or feast for the day | ✅ Working |
-| **Listen** | Readings and saints' lives read aloud with the device's own voice (no online AI voices); pause, speed, voice | ✅ Working |
+| **Listen** | Readings and saints' lives read aloud with the device's own voice (no online AI voices); pause, speed, and a choice of three voices (David, Mark and Zira on Windows) | ✅ Working |
 | **Fasting rule engine** | Maps each day to a clear `FastingRule` (strict, wine only, wine & oil, fish, meat fast, fast-free) | ✅ Working |
 | **Find a parish near me** | Search churches by your location, city or ZIP, with distance and directions | 🔜 Next |
-| **Accounts** | Sign up and sign in with email and password; optional phone number | ✅ Working |
+| **Accounts** | Sign up and sign in with email and password; an email is always needed, a phone number is optional; one account per email | ✅ Working |
+| **Stay signed in** | You stay signed in until you choose **Sign out**, even after the server restarts or a long time away | ✅ Working |
 | **Strong passwords** | 12+ characters with upper and lower case, a number and a symbol; live checklist; lockout after 5 wrong tries | ✅ Working |
-| **Two-step verification** | After your password, a 6-digit code from an authenticator app (Google Authenticator, Microsoft Authenticator, the iPhone Passwords app...) with 10 one-time backup codes; or a code by text message or email | ✅ Authenticator app working online; texts need [Twilio Verify](#codes-by-text-message-twilio-verify), email needs a mail service |
-| **Sign in with Google** | One-tap sign-in that creates or links your account (the button shows "not set up yet" until keys are added) | 🔧 Built: needs [Google keys](#sign-in-with-google) |
-| **Profile** | Profile photo (cropped, resized, location data stripped), patron saint, name day (with a greeting on the day), home parish | ✅ Working |
-| **Text size & dark mode** | Normal / Large / Larger text; match device, light or dark theme; saved to your account | ✅ Working |
+| **Sign in with Google** | One tap: the first time it creates your account (then asks for an optional phone number); if your email already has an account, it opens that one | ✅ Working |
+| **Profile** | Profile photo (cropped, resized, location data stripped), patron saint with their feast day (a month and day, and a greeting on your name day), home parish | ✅ Working |
+| **Text size & dark mode** | Small / Normal / Large text; match device, light or dark theme; saved to your account | ✅ Working |
+| **Members page** | For administrators: how many accounts there are, and each member's name, email, phone and how they sign in (never passwords); download as a spreadsheet | ✅ Working |
+| **Privacy policy** | A plain page at `/privacy` saying what the app keeps and why (Google's sign-in screen links to it) | ✅ Working |
 | **Five Orthodox styles** | Illuminated manuscript (parchment and red rubrics), Byzantine mosaic (lapis and gold tesserae), Candlelit vigil (always dark, candle glow), Holy Mountain (forest green, stone and terracotta roof tiles) and Liturgical seasons (bright and modern, in the color of the season's vestments); light and dark versions; chosen when creating an account, changed in Profile | ✅ Working |
 | **Typikon feast signs** | Each day's rank shown with the service books' signs (red cross in a circle for great feasts, and so on); a red drop capital opens each reading | ✅ Working |
 | **Service texts (PDF)** | Each day links to the Archdiocese's Online Liturgical Guide (Orthros, Divine Liturgy, Vespers) | 🔗 Linked; in-app viewer waiting on permission |
@@ -70,10 +71,8 @@ One codebase is planned to run on the web, Windows, macOS, Linux, Android and iO
 | **Database** | Spring Data JPA with H2 on your computer (stored in `data/`) and PostgreSQL online | User accounts now; parishes, events, news, bookmarks next |
 | **Packaging** | Docker (a multi-stage `Dockerfile`) | One container with the React app, the backend and Java, runnable on any host |
 | **Hosting** | [Render](https://render.com) (free plan to start), set up by `render.yaml` | Builds and deploys from GitHub after the checks pass; free HTTPS address |
-| **Security** | Spring Security: sessions, CSRF protection, BCrypt password hashing | Sign-in, two-step verification, protected account pages |
+| **Security** | Spring Security: sessions, a signed "stay signed in" cookie (HMAC-SHA256), CSRF protection, BCrypt password hashing | Sign-in, protected account pages |
 | **Google sign-in** | OAuth 2.0 / OpenID Connect (Spring Security OAuth2 Client) | Sign in without a new password |
-| **Authenticator codes** | TOTP (RFC 6238), written in `Totp.java`; QR codes drawn with the `qrcode` package | Free two-step verification that needs no email or text service |
-| **Email & text messages** | Spring Mail (SMTP) and Twilio Verify | Verification codes; printed in the terminal while developing |
 | **Maps & location** *(planned)* | Browser Geolocation API + OpenStreetMap | "Near me" parish search and maps |
 | **Cache** | `CalendarCache`: in the server's memory | Each day's calendar data, kept until midnight Central time (one server doesn't need Redis) |
 | **Fonts** | EB Garamond, Cormorant Garamond and Cinzel (SIL Open Font License), packed into the app with Fontsource | Book-like reading text and carved-inscription capitals, with no requests to Google |
@@ -93,8 +92,8 @@ One codebase is planned to run on the web, Windows, macOS, Linux, Android and iO
  │  iOS (React + Capacitor) │ ◀───── │  • CalendarController        │ ◀───── │  Greek tradition │
  │                          │        │  • CalendarService           │        │  New calendar    │
  │  Today: the React app    │        │  • OrthocalClient            │        └──────────────────┘
- │  (frontend/), on any     │        │  • AuthController, accounts  │  ────▶  Google sign-in,
- │  browser or home screen  │        │  • Bible, parishes (planned) │         email (SMTP), texts (Twilio Verify)
+ │  (frontend/), on any     │        │  • AuthController, accounts  │  ────▶  Google sign-in
+ │  browser or home screen  │        │  • Bible, parishes (planned) │
  └──────────────────────────┘        └──────┬───────────────┬───────┘
                                             │               │
                                      ┌──────▼─────┐   ┌─────▼──────┐
@@ -148,23 +147,26 @@ CalendarController  ──▶  CalendarService  ──▶  OrthocalClient  ─�
 - **Sessions, not tokens.** Signing in stores your account ID in a server-side
   session; the browser keeps only a random session cookie. Every POST/PUT also
   needs a CSRF token, which the pages fetch from `/api/auth/csrf`.
+- **Staying signed in** (`StaySignedIn`): sessions live in the server's memory
+  and end when it restarts (on the free plan, after every 15 quiet minutes).
+  So signing in also sets a long-lasting cookie: your account number, a date,
+  and an HMAC-SHA256 signature made with a secret key kept in the database
+  (`ServerSecret`). When a request arrives without a session, the cookie signs
+  you in again and is renewed for another 400 days. **Sign out** deletes it.
 - **Passwords** are checked against `PasswordPolicy` and stored only as BCrypt
   hashes. 5 wrong passwords in a row lock the account for 15 minutes, and a
   wrong email gets the same reply as a wrong password.
-- **Two-step verification:** after a correct password, `AuthController` asks
-  for a 6-digit code and only finishes signing in once it's right:
-  - **Authenticator app** (`AuthenticatorService`, `Totp`): the app and the
-    server share a secret (the QR code) and both work out the same code every
-    30 seconds. Each code works once; 10 one-time backup codes (stored only as
-    hashes) cover a lost phone; 10 wrong codes lock the account for 15 minutes.
-  - **Text or email** (`VerificationCodeService`): a code we send, hashed,
-    valid for 10 minutes with 5 tries. Texts go through Twilio Verify, which
-    makes and checks its own codes. Online, these are only offered when they
-    can really be sent (`CodeChannels`), so nobody can lock themselves out.
+- **One account per email**, compared without capital letters; the database's
+  email column is also unique.
 - **Google:** Spring Security handles the OAuth/OpenID Connect exchange;
-  `SocialSignInHandler` then finds, links or creates the account. An account
-  whose email was never verified loses its password when the verified owner
-  signs in with Google, so nobody can claim someone else's email in advance.
+  `SocialSignInHandler` then finds or creates the account. Emails typed when
+  creating an account aren't checked, so when Google proves who owns an email
+  that already has an account, that account's password is removed and it
+  opens with Google from then on. Nobody can claim someone else's email in advance.
+- **Administrators** (`admin/Admins`): accounts whose email is in the
+  `app.admin.emails` setting *and* proven by signing in with Google once.
+- **Two-step verification** was built and then taken out on 2026-10-24, until
+  after launch; it's in the Git history for when it comes back.
 
 ---
 
@@ -187,6 +189,7 @@ OrthodoxChristianApp/
 │   ├── src/styles/                  # theme.css (the five styles' colors and fonts) and app.css (the screens)
 │   ├── public/data/prayers.json     # The prayers themselves (edit this to add or fix a prayer)
 │   ├── public/data/church.json      # The Archdiocese: hierarchs, dioceses, ministries (edit when they change)
+│   ├── public/privacy.html          # The privacy policy (orthodox-daily.onrender.com/privacy)
 │   └── public/icons/                # The app icon (gold Orthodox cross)
 ├── .github/
 │   ├── workflows/ci.yml             # GitHub Actions: test and build everything on every push, then try the container
@@ -196,11 +199,14 @@ OrthodoxChristianApp/
 │   └── ISSUE_TEMPLATE/              # Forms for new user stories and bug reports
 ├── src/test/java/com/orthodox/orthodoxapp/
 │   ├── FastingRuleTest.java         # Tests for the fasting rules
-│   └── auth/                        # Tests for passwords, phones, authenticator codes and the whole sign-in flow
+│   ├── DatabaseFixesTest.java       # An old database layout gets repaired at startup
+│   ├── account/, admin/             # Tests for the profile, appearance, photos and the Members page
+│   └── auth/                        # Tests for passwords, phones, Google, staying signed in, the whole sign-in flow
 └── src/main/
     ├── java/com/orthodox/orthodoxapp/
     │   ├── OrthodoxappApplication.java  # Starting point: main() boots Spring
     │   ├── DatabaseUrl.java             # Online: turns the host's DATABASE_URL into database settings
+    │   ├── DatabaseFixes.java           # At startup: table repairs Hibernate can't make (old columns, new choices)
     │   ├── CalendarController.java      # Web endpoints: /api/today, /api/day/{y}/{m}/{d}
     │   ├── CalendarService.java         # Business logic: converts Orthocal data, applies rules
     │   ├── CalendarCache.java           # Keeps each day's calendar until midnight (Central)
@@ -211,22 +217,21 @@ OrthodoxChristianApp/
     │   ├── ReadingSelector.java         # Picks the day's readings the way the Archdiocese lists them
     │   ├── ScriptureBooks.java          # "Galatians 1.11-19" -> "St. Paul's Letter to the Galatians 1:11-19"
     │   ├── ApiExceptionHandler.java     # Turns errors into clear JSON replies
-    │   ├── SpaController.java           # Sends the React app for /bible, /prayers, /profile... (bookmarks work)
+    │   ├── SpaController.java           # Sends the React app for /bible, /prayers, /profile... (bookmarks work), and /privacy
     │   ├── account/                     # Who you are: AppUser (database table), your account settings
-    │   │   ├── AppUser.java, AppUserRepository.java, TwoFactorMethod.java, TextSize.java, Theme.java, AppStyle.java
-    │   │   ├── AccountController.java   # /api/account/...: profile, photo, appearance, phone, verification, two-step
+    │   │   ├── AppUser.java, AppUserRepository.java, TextSize.java, Theme.java, AppStyle.java
+    │   │   ├── AccountController.java   # /api/account/...: profile, photo, appearance, phone
     │   │   ├── AccountService.java, AccountView.java
     │   │   └── ProfilePhoto*.java       # Photo table, and checking/cropping/re-saving uploads
-    │   ├── auth/                        # Signing in
-    │   │   ├── SecurityConfig.java      # Who can see what, CSRF, sign-out, Google
-    │   │   ├── AuthController.java      # /api/auth/...: register, sign in, codes
-    │   │   ├── AuthService.java         # Password checks, lockout, Google accounts
-    │   │   ├── AuthenticatorService.java, Totp.java, BackupCode.java  # Authenticator-app codes and backup codes
-    │   │   ├── PasswordPolicy.java      # The strong-password rules
-    │   │   ├── VerificationCodeService.java  # 6-digit codes: create, send, check
-    │   │   ├── SessionSignIn.java       # Marks a session as signed in
-    │   │   └── SocialClientRegistrations.java, SocialSignInHandler.java, ...
-    │   └── notify/                      # Sending emails and texts (or printing them while developing)
+    │   ├── admin/                       # The Members page: Admins.java (who), MembersController.java (/api/admin/members)
+    │   └── auth/                        # Signing in
+    │       ├── SecurityConfig.java      # Who can see what, CSRF, staying signed in, sign-out, Google
+    │       ├── AuthController.java      # /api/auth/...: register, sign in
+    │       ├── AuthService.java         # Password checks, lockout, one account per email, Google accounts
+    │       ├── PasswordPolicy.java      # The strong-password rules
+    │       ├── SessionSignIn.java       # Marks a session as signed in
+    │       ├── StaySignedIn.java, ServerSecret.java  # The long-lasting signed cookie, and its secret key
+    │       └── SocialClientRegistrations.java, SocialSignInHandler.java, ...
     └── resources/
         ├── application.properties       # App settings (port, database, secrets file)
         ├── application-prod.properties  # Extra settings used only online (PostgreSQL, https)
@@ -299,32 +304,26 @@ When the terminal shows `Started OrthodoxappApplication`, open:
 | http://localhost:8080/bible/PSA/50 | The Bible tab (here at Psalm 50) |
 | http://localhost:8080/prayers/morning | The Prayers tab (here at Morning Prayers) |
 | http://localhost:8080/profile | The Profile tab (sign in first) |
+| http://localhost:8080/profile/members | The Members page (administrators only; see below) |
 | http://localhost:8080/sign-in | Sign in, or create an account |
+| http://localhost:8080/privacy | The privacy policy |
 | http://localhost:8080/api/today | Today's raw JSON from our backend |
 | http://localhost:8080/api/day/2026/12/25 | Raw JSON for any date |
 | http://localhost:8080/api/bible/JOH/3 | Raw JSON for one Bible chapter |
 
 To stop the app, click the red ■ square in the toolbar or press **Shift+F5**.
 
-**Where are my codes?** Until email and texts are set up (below), every code
-is printed in the VS Code terminal where the app runs (the **Debug Console**
-tab if you started it with F5), in a box marked `EMAIL (development mode...)`
-or `TEXT MESSAGE (development mode...)`. The pages say so too.
+### 5. Setting up Google sign-in and the Members page
 
-### 5. Setting up sign-in, email and text messages
-
-Everything here is optional. Keys go in **`secrets.properties`**, which Git
-ignores. Copy `secrets.example.properties` to `secrets.properties`, fill in a
-section, and restart the app. The example file explains each setting.
-
-| What | You need | Cost |
-|---|---|---|
-| **Google sign-in** | An OAuth client from Google Cloud Console (steps below) | Free |
-| **Authenticator-app codes** | Nothing: they work as soon as someone turns them on in Profile | Free |
-| **Codes by text** | A [Twilio](https://www.twilio.com) account with a Verify service (steps below) | About $0.05 per successful verification plus about a cent per text (US) |
-| **Real emails** | An SMTP server, e.g. a Gmail [app password](https://myaccount.google.com/apppasswords). Online this also needs a paid Render plan (the free plan blocks email) | Free on your computer |
+Both are optional on your computer (online they're already set up). Keys go
+in **`secrets.properties`**, which Git ignores. Copy
+`secrets.example.properties` to `secrets.properties`, fill in a section, and
+restart the app. The example file explains each setting.
 
 #### Sign in with Google
+
+This was done on 2026-10-24 for the Google Cloud project **Orthodox Daily**
+(`orthodox-daily-512617`). To do it again, or for another project:
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com) and sign
    in with your Google account (accept Google Cloud's terms the first time).
@@ -332,15 +331,21 @@ section, and restart the app. The example file explains each setting.
    *Orthodox Daily* → **Create**, then make sure it's selected.
 3. Open **Google Auth Platform** (search for it at the top) → **Get started**:
    app name *Orthodox Daily*, your email as the support email, audience
-   **External**, your email as the contact → **Create**.
+   **External**, your email as the contact, agree to Google's User Data
+   Policy → **Create**.
 4. **Clients** → **Create client** → type **Web application**, name
    *Orthodox Daily web*. Under **Authorized redirect URIs** add both:
    - `http://localhost:8080/login/oauth2/code/google`
    - `https://orthodox-daily.onrender.com/login/oauth2/code/google`
-5. **Create**. Copy the **Client ID** and **Client secret** it shows.
-6. **Audience** → **Publish app**, so everyone (not only test users) can sign
-   in. The app only asks for name and email, so Google doesn't need to review it.
-7. Put the two values in `secrets.properties` (`app.auth.google.client-id`,
+5. **Create**. Copy the **Client ID** and **Client secret** it shows (Google
+   shows the secret only this once; if it's lost, add a new secret to the client).
+6. **Branding**: application home page `https://orthodox-daily.onrender.com`,
+   privacy policy `https://orthodox-daily.onrender.com/privacy`; authorized
+   domain `orthodox-daily.onrender.com` → **Save**.
+7. **Audience** → **Publish app** → **Confirm**, so everyone (not only test
+   users) can sign in. The app only asks for name and email and has no logo,
+   so Google doesn't need to review it.
+8. Put the two values in `secrets.properties` (`app.auth.google.client-id`,
    `app.auth.google.client-secret`) for your computer, and in Render →
    orthodox-daily → **Environment** as `APP_AUTH_GOOGLE_CLIENTID` and
    `APP_AUTH_GOOGLE_CLIENTSECRET` for the live app. Restart / save.
@@ -348,27 +353,21 @@ section, and restart the app. The example file explains each setting.
 The client secret is a password for the app: never put it in a file that goes
 to GitHub.
 
-#### Codes by text message (Twilio Verify)
+#### The Members page (administrators)
 
-Twilio Verify texts the codes from Twilio's own numbers, so there's no number
-to buy and no US carrier registration (which ordinary app texts now need).
+Administrators see **Members** at the top of the Profile tab: how many
+accounts there are, and each one's name, email, phone number, how they sign
+in and when they joined, with a button to download the list as a spreadsheet.
+To be an administrator, both must be true:
 
-1. Sign up at [twilio.com](https://www.twilio.com/try-twilio) (a free trial).
-2. In the [Twilio Console](https://console.twilio.com), copy the **Account
-   SID** and **Auth Token** from the account's home page.
-3. **Verify** → **Services** → **Create new**: friendly name *Orthodox Daily*
-   (it appears in the text: "Your Orthodox Daily verification code is..."),
-   channel **SMS** → **Create**. Copy its **Service SID** (starts with `VA`).
-4. Put the three values in `secrets.properties` (`app.sms.twilio.account-sid`,
-   `app.sms.twilio.auth-token`, `app.sms.twilio.verify-service-sid`) and in
-   Render's Environment as `APP_SMS_TWILIO_ACCOUNTSID`,
-   `APP_SMS_TWILIO_AUTHTOKEN` and `APP_SMS_TWILIO_VERIFYSERVICESID`.
-5. A trial account only texts numbers you've verified in Twilio (yours), which
-   is enough to test. To text everyone, upgrade the Twilio account (add a
-   payment method there).
+1. Your email is in the `app.admin.emails` setting (`secrets.properties`), or
+   online in Render's `APP_ADMIN_EMAILS` (several emails: separate them with
+   commas). Online it's set to the project owner's email.
+2. You've signed in with **Continue with Google** at least once, which proves
+   the email is yours.
 
-Then **Text me a code** appears in Profile → Two-step verification, after a
-person verifies their phone number. Until then it shows "coming soon".
+Nobody can see anyone's password, administrators included: the app only keeps
+a BCrypt hash, which can check a password but can't be turned back into it.
 
 ---
 
@@ -472,7 +471,7 @@ start.
 |---|---|---|
 | [Sleeps after 15 minutes](https://render.com/docs/free) with no visitors | The next visitor waits up to about a minute while it wakes | Upgrade the web service to **Starter** (about $7/month) for always-on |
 | [The free database expires after 30 days](https://render.com/docs/free) | Render emails a warning; after a 14-day grace period the database, with every account in it, is deleted | Upgrade the database (about $6/month) **before** people rely on their accounts |
-| [Email can't be sent](https://render.com/changelog/free-web-services-will-no-longer-allow-outbound-traffic-to-smtp-ports) | Free services can't reach email servers (SMTP), so verification codes are only written to Render's **Logs** | Upgrade to Starter, or send email through a service's web API (Issue #32) |
+| [Email can't be sent](https://render.com/changelog/free-web-services-will-no-longer-allow-outbound-traffic-to-smtp-ports) | Free services can't reach email servers (SMTP). The app sends no email today; it will matter for password resets | Upgrade to Starter, or send email through a service's web API (Issue #32) |
 
 Prices change; check [render.com/pricing](https://render.com/pricing). To
 upgrade: the service or database in Render → **Settings** → **Instance Type**.
@@ -485,22 +484,35 @@ open **orthodox-daily** → **Environment** → **Add Environment Variable**, th
 save (the app restarts with them). The name is the setting in capitals, with
 `_` instead of `.` and no `-`:
 
-| In `secrets.properties` | Render environment variable |
-|---|---|
-| `app.auth.google.client-id` | `APP_AUTH_GOOGLE_CLIENTID` |
-| `app.auth.google.client-secret` | `APP_AUTH_GOOGLE_CLIENTSECRET` |
-| `spring.mail.host`, `spring.mail.port` | `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT` |
-| `spring.mail.username`, `spring.mail.password` | `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD` |
-| `spring.mail.properties.mail.smtp.auth` | `SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH` |
-| `spring.mail.properties.mail.smtp.starttls.enable` | `SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE` |
-| `app.sms.twilio.account-sid` | `APP_SMS_TWILIO_ACCOUNTSID` |
-| `app.sms.twilio.auth-token` | `APP_SMS_TWILIO_AUTHTOKEN` |
-| `app.sms.twilio.verify-service-sid` | `APP_SMS_TWILIO_VERIFYSERVICESID` |
+| In `secrets.properties` | Render environment variable | Set online? |
+|---|---|---|
+| `app.auth.google.client-id` | `APP_AUTH_GOOGLE_CLIENTID` | ✅ |
+| `app.auth.google.client-secret` | `APP_AUTH_GOOGLE_CLIENTSECRET` | ✅ |
+| `app.admin.emails` | `APP_ADMIN_EMAILS` | ✅ |
 
 For Google sign-in online, also add
 `https://orthodox-daily.onrender.com/login/oauth2/code/google` (your real
 address) as an **Authorized redirect URI** in Google Cloud Console, next to the
 `localhost` one.
+
+### Seeing who has an account
+
+Open the app, sign in with **Continue with Google** (with the email in
+`APP_ADMIN_EMAILS`), and go to **Profile** → **Members**. It shows the number
+of accounts and, for each member, their name, email, phone number, whether
+they sign in with a password or Google, and when they joined. **Download as a
+spreadsheet (CSV)** saves the list for Excel, Numbers or Google Sheets.
+
+Passwords can't be shown, to you or anyone: only a one-way BCrypt hash of
+each is stored. If a member forgets theirs and their email is a Gmail address,
+they can use **Continue with Google** (resetting a password by email is on the
+roadmap).
+
+The database itself is locked so that only Render's own services can reach it
+(`ipAllowList: []` in `render.yaml`), so the Members page is the way in. To
+open it with a database tool one day, you'd add your own internet address to
+that `ipAllowList` and connect with the database's **External Database URL**
+from Render (it contains the database password, so keep it private).
 
 ### Moving to another host later
 
@@ -550,14 +562,15 @@ To bring the accounts along, copy the database across with PostgreSQL's
 **Phase 3: Accounts**
 - [x] Spring Security: sign up and sign in with sessions, BCrypt password hashes, CSRF protection
 - [x] Strong password rules with a live checklist; lockout after 5 wrong tries
-- [x] Optional phone number, verified by text
-- [x] Two-step verification with an authenticator app (QR code, backup codes), or by text or email
-- [ ] Sign in with Google (built; needs keys). Sign in with Apple was dropped (it needs a $99/year Apple Developer account)
-- [ ] Real email and text delivery (built; texts need a Twilio Verify service, email a mail service and a paid Render plan)
-- [ ] Reset a forgotten password
-- [x] Profile: photo, patron saint, name day greeting, home parish (free text for now)
-- [x] Text size and dark mode
-- [ ] Roles: member, parish admin, site admin
+- [x] An email for every account (one account per email); an optional phone number (not checked with a code)
+- [x] Sign in with Google: creates your account, or opens the one with your email. (Sign in with Apple was dropped: it needs a $99/year Apple Developer account)
+- [x] Stay signed in until you sign out (a signed cookie that outlasts server restarts)
+- [x] Members page for administrators (count, names, emails, phones; never passwords)
+- [ ] Two-step verification and checking emails and phones with codes: built in October 2026, then taken out until after launch (it's in the Git history)
+- [ ] Reset a forgotten password (needs email, which Render's free plan blocks: Issue #32)
+- [x] Profile: photo, patron saint with their feast day, name day greeting, home parish (free text for now)
+- [x] Text size (small, normal, large) and dark mode
+- [ ] Roles: member, parish admin (site administrators: done, by email)
 - [ ] Home parish linked to the parish finder; bookmarked saints and feasts
 
 **Phase 4: Content** *(antiochian.org: Church News, Orthodox Prayers, Dioceses, Ministries, About)*
@@ -576,7 +589,7 @@ To bring the accounts along, copy the database across with PostgreSQL's
 - [ ] `@Scheduled` 6:00 AM summaries and push notifications
 - [ ] PWA install support, then Android/iOS apps with Capacitor
 - [x] Put the app online: [orthodox-daily.onrender.com](https://orthodox-daily.onrender.com) on Render (`Dockerfile`, `render.yaml`, PostgreSQL), tested in GitHub Actions before every deploy
-- [ ] Before people rely on it: upgrade Render's free database (deleted after 30 days) and send email online (Issue #32)
+- [ ] Before people rely on it: upgrade Render's free database (deleted after 30 days)
 
 ---
 
@@ -585,11 +598,11 @@ To bring the accounts along, copy the database across with PostgreSQL's
 | Problem | Fix |
 |---|---|
 | `Port 8080 was already in use` | Another copy is still running. Stop it (red ■), or change `server.port` in `application.properties`. |
-| Where's my 6-digit code? | On your computer, until email/texts are set up, codes are printed in the VS Code terminal running the app. With an authenticator app, the code is in the app. |
-| "Continue with Google" says "not set up yet" | Fill in both Google settings (`secrets.properties`, or Render's Environment online), then restart the app. |
+| "Continue with Google" is greyed out | Fill in both Google settings (`secrets.properties`, or Render's Environment online), then restart the app. |
 | Google says "redirect_uri_mismatch" | The address in the error must be listed exactly under **Authorized redirect URIs** in Google Cloud Console (see [Sign in with Google](#sign-in-with-google)). |
-| The authenticator code is refused | Use the newest code (it changes every 30 seconds), and check the phone's clock is set automatically. Lost the phone? Use a backup code. |
-| "Text me a code" says "coming soon" | Texts aren't set up on this server yet: see [Codes by text message](#codes-by-text-message-twilio-verify). |
+| After "Continue with Google" my password no longer works | That's on purpose: the first Google sign-in proves the email is yours, and removes a password the app couldn't check was yours. Keep using Google. |
+| I'm still being signed out | Signing out yourself, private browsing, or clearing the browser's cookies all sign you out. Otherwise you stay signed in for as long as you open the app at least once every 400 days. |
+| There's no **Members** in my Profile | Your email must be in `APP_ADMIN_EMAILS` (or `app.admin.emails` on your computer), and you must have signed in with Google at least once. |
 | I want an empty database | Stop the app and delete the `data/` folder. It's recreated on the next start. |
 | Red squiggles everywhere after opening | The Java extension is still downloading libraries. Wait, or run **Ctrl+Shift+P → Java: Clean Java Language Server Workspace**. |
 | Page says *"Could not load this day"* | Make sure the app is running and you're online. Check the VS Code terminal for an error. |
@@ -598,7 +611,6 @@ To bring the accounts along, copy the database across with PostgreSQL's
 | Startup error about `/api/today` being mapped twice | An old copy of `TodayController.java` still has code in it. It should contain only comments; you can delete it. |
 | `java -version` shows 11 or older | Install Java 17+ from adoptium.net, then restart VS Code. |
 | The online app takes a minute to open | On Render's free plan it sleeps after 15 minutes without visitors and wakes on the next visit. Starter plan = always on. |
-| Codes don't arrive on the online app | Render's free plan blocks email. Find the code in Render → orthodox-daily → **Logs**. |
 | A Blueprint sync failed with "name already in use" | Click **Manual sync** on the Blueprint once more. (The very first sync did this; the second one created the web service.) |
 | Render shows "Deploy failed" | Open the deploy's log in Render. If the app started but stopped with `'url' must start with "jdbc"`, the `DATABASE_URL` environment variable is missing. |
 | My push didn't update the online app | Render waits for the GitHub checks. A red ✗ in the **Actions** tab means a check failed, so the old version stays online. |

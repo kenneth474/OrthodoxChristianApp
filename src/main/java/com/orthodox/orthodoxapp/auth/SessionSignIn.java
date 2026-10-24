@@ -3,11 +3,6 @@ package com.orthodox.orthodoxapp.auth;
 import com.orthodox.orthodoxapp.account.AppUser;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
-import java.io.Serializable;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Optional;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContext;
@@ -17,7 +12,7 @@ import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Component;
 
 /**
- * SessionSignIn: marks a browser session as signed in (or half signed in).
+ * SessionSignIn: signs a person in, after a right password or after Google.
  *
  * HOW SIGNING IN WORKS
  * The web is "stateless": each request arrives on its own. To remember who
@@ -26,27 +21,25 @@ import org.springframework.stereotype.Component;
  * Signing in means writing "this session belongs to account 7" into it.
  * Spring Security then reads that on every later request.
  *
- * With two-step verification there's an in-between state: the password was
- * right but the code hasn't been entered yet. We note that separately
- * ("pending"), so the person is NOT signed in until the code is checked.
+ * Sessions end when the server restarts, so signing in also sets the
+ * long-lasting "stay signed in" cookie (see StaySignedIn), which starts a
+ * new session for you whenever the old one has gone.
  */
 @Component
 public class SessionSignIn {
 
-    // The pending state expires, like the code itself.
-    private static final Duration PENDING_LIFETIME = Duration.ofMinutes(10);
-    private static final String PENDING_ATTRIBUTE = "PENDING_SIGN_IN";
-
-    private record PendingSignIn(Long userId, Instant startedAt) implements Serializable {
-    }
-
     // Where Spring Security keeps the signed-in user: inside the HTTP session.
     private final SecurityContextRepository contextRepository = new HttpSessionSecurityContextRepository();
 
-    /** Fully signs this person in for this browser session. */
-    public void completeSignIn(AppUser user, HttpServletRequest request, HttpServletResponse response) {
-        HttpSession session = request.getSession(true);
-        session.removeAttribute(PENDING_ATTRIBUTE);
+    private final StaySignedIn staySignedIn;
+
+    public SessionSignIn(StaySignedIn staySignedIn) {
+        this.staySignedIn = staySignedIn;
+    }
+
+    /** Signs this person in: for this session, and with a cookie that keeps them signed in. */
+    public void signIn(AppUser user, HttpServletRequest request, HttpServletResponse response) {
+        request.getSession(true);
 
         // Give the session a brand-new ID. This blocks "session fixation": an
         // attacker who planted a session ID in your browser before you signed
@@ -64,23 +57,7 @@ public class SessionSignIn {
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);              // for the rest of this request
         contextRepository.saveContext(context, request, response); // for later requests
-    }
 
-    /** Password was right; now waiting for the 6-digit code. */
-    public void startTwoStep(AppUser user, HttpServletRequest request) {
-        request.getSession(true).setAttribute(PENDING_ATTRIBUTE, new PendingSignIn(user.getId(), Instant.now()));
-    }
-
-    /** The account waiting for its code, if it's been less than 10 minutes. */
-    public Optional<Long> pendingUserId(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        if (session == null || !(session.getAttribute(PENDING_ATTRIBUTE) instanceof PendingSignIn pending)) {
-            return Optional.empty();
-        }
-        if (Instant.now().isAfter(pending.startedAt().plus(PENDING_LIFETIME))) {
-            session.removeAttribute(PENDING_ATTRIBUTE);
-            return Optional.empty();
-        }
-        return Optional.of(pending.userId());
+        staySignedIn.remember(user, request, response);
     }
 }

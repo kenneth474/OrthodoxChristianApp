@@ -5,7 +5,8 @@
   speaks with the voices installed on the phone or computer, the same ones
   screen readers use. Only voices stored ON the device are used
   (voice.localService): some browsers also offer online "natural" voices that
-  send the text to a cloud AI service, and those are skipped.
+  send the text to a cloud AI service, and those are skipped. And only three
+  voices are offered (see offeredVoices below), not the dozens some devices have.
 
   HOW REACT SEES IT: this file keeps its own little "store": the current
   state (playing? paused? which title?) plus a list of listeners. React
@@ -18,7 +19,7 @@ export interface ListenState {
   playing: boolean
   paused: boolean
   title: string
-  voices: SpeechSynthesisVoice[] // English voices on this device
+  voices: SpeechSynthesisVoice[] // the (up to) three voices offered on this device
   voiceName: string
   rate: string // "0.8" .. "1.15"
 }
@@ -74,9 +75,40 @@ export function useListen(): ListenState {
 
 // ----- Voices -----
 
+// Windows' three American voices, offered in this order.
+const WINDOWS_VOICES = ['David', 'Mark', 'Zira']
+
+// Joke and sound-effect voices that iPhones and Macs include ("Bubbles",
+// "Zarvox"...), and old robotic ones: never offered.
+const NOVELTY_VOICES =
+  /\b(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Eddy|Flo|Fred|Good News|Grandma|Grandpa|Jester|Junior|Kathy|Organ|Ralph|Reed|Rocko|Sandy|Shelley|Superstar|Trinoids|Whisper|Wobble|Zarvox)\b/
+
+/**
+ * The voices offered, at most three:
+ *  - on Windows: David, Mark and Zira
+ *  - elsewhere (iPhone, Mac, Android), where voices have other names: up to
+ *    three American English voices, the better-sounding "Premium" and
+ *    "Enhanced" ones and the device's own choice first; or other English
+ *    voices if there are no American ones.
+ * Exported for the tests in lib.test.ts.
+ */
+export function offeredVoices(all: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
+  const english = all.filter((v) => v.localService && v.lang.toLowerCase().startsWith('en'))
+
+  const windows = WINDOWS_VOICES.map((name) => english.find((v) => v.name.startsWith(`Microsoft ${name}`)))
+  const found = windows.filter((v): v is SpeechSynthesisVoice => v !== undefined)
+  if (found.length > 0) return found
+
+  const usable = english.filter((v) => !NOVELTY_VOICES.test(v.name))
+  const american = usable.filter((v) => v.lang.replace('_', '-').toLowerCase() === 'en-us')
+  const rank = (v: SpeechSynthesisVoice) =>
+    /Premium/.test(v.name) ? 0 : /Enhanced/.test(v.name) ? 1 : v.default ? 2 : 3
+  return [...(american.length > 0 ? american : usable)].sort((a, b) => rank(a) - rank(b)).slice(0, 3)
+}
+
 function localVoices(): SpeechSynthesisVoice[] {
   if (!listenSupported) return []
-  return speechSynthesis.getVoices().filter((v) => v.localService && v.lang.toLowerCase().startsWith('en'))
+  return offeredVoices(speechSynthesis.getVoices())
 }
 
 function chosenVoice(): SpeechSynthesisVoice | undefined {

@@ -4,8 +4,6 @@ import com.orthodox.orthodoxapp.account.AccountService;
 import com.orthodox.orthodoxapp.account.AccountView;
 import com.orthodox.orthodoxapp.account.AppStyle;
 import com.orthodox.orthodoxapp.account.AppUser;
-import com.orthodox.orthodoxapp.account.TwoFactorMethod;
-import com.orthodox.orthodoxapp.notify.CodeChannels;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Map;
@@ -21,13 +19,14 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * AuthController: the web endpoints for creating accounts and signing in.
  *
- *   GET  /api/auth/csrf            -> the CSRF token pages must send with POST/PUT
- *   GET  /api/auth/options         -> what this server offers: Google sign-in? email/text codes?
- *   POST /api/auth/register        -> create an account (then signed in)
- *   POST /api/auth/sign-in         -> email + password
- *   POST /api/auth/sign-in/verify  -> the 6-digit code (or a backup code), if two-step verification is on
- *   POST /api/auth/sign-in/resend  -> send a new code (email or text only)
- *   POST /api/auth/sign-out        -> handled by Spring Security (see SecurityConfig)
+ *   GET  /api/auth/csrf      -> the CSRF token pages must send with POST/PUT
+ *   GET  /api/auth/options   -> what this server offers: is Google sign-in set up?
+ *   POST /api/auth/register  -> create an account (then signed in)
+ *   POST /api/auth/sign-in   -> email + password
+ *   POST /api/auth/sign-out  -> handled by Spring Security (see SecurityConfig)
+ *
+ * Signing in with Google starts at /oauth2/authorization/google instead,
+ * handled by Spring Security and then SocialSignInHandler.
  *
  * @RequestBody turns the JSON the page sends into one of the small records
  * below, e.g. {"email": "...", "password": "..."} -> SignInRequest.
@@ -36,62 +35,40 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    // style: the look chosen while creating the account (optional).
+    // phone is optional; style is the look chosen while creating the account (optional).
     public record RegisterRequest(String email, String password, String displayName, String phone, AppStyle style) {
     }
 
     public record SignInRequest(String email, String password) {
     }
 
-    public record CodeRequest(String code) {
+    /** What this server offers. The sign-in page greys out the Google button until it's set up. */
+    public record SignInOptions(boolean google) {
     }
 
     /**
-     * What this server offers: the Google button, and whether codes can
-     * really be sent by email and by text (see CodeChannels). The pages use
-     * this to show only the choices that work.
+     * The reply to signing in or creating an account: status "SIGNED_IN" and
+     * the person's details. (The status stays, so that copies of the app from
+     * before 2026-10-24, still open on someone's phone, keep working.)
      */
-    public record SignInOptions(boolean google, boolean emailCodes, boolean textCodes) {
-    }
+    public record SignInResponse(String status, AccountView account) {
 
-    /**
-     * The result of a sign-in step:
-     *   status "SIGNED_IN"     -> done; account holds the person's details
-     *   status "CODE_REQUIRED" -> enter a 6-digit code. method says where it is:
-     *                             "EMAIL" or "SMS" (sent to sentTo, e.g. "k•••@gmail.com";
-     *                             developmentMode = in the terminal, not really sent),
-     *                             or "AUTHENTICATOR" (in the person's authenticator app)
-     */
-    public record SignInResponse(String status, String method, String sentTo, boolean developmentMode,
-                                 AccountView account) {
-
-        static SignInResponse signedIn(AppUser user) {
-            return new SignInResponse("SIGNED_IN", null, null, false, AccountView.from(user));
-        }
-
-        static SignInResponse codeRequired(TwoFactorMethod method, SentCode code) {
-            return new SignInResponse("CODE_REQUIRED", method.name(), code.sentTo(), code.developmentMode(), null);
+        static SignInResponse signedIn(AccountView account) {
+            return new SignInResponse("SIGNED_IN", account);
         }
     }
 
     private final AuthService authService;
     private final AccountService accountService;
-    private final VerificationCodeService codes;
-    private final AuthenticatorService authenticator;
     private final SessionSignIn sessionSignIn;
     private final SocialClientRegistrations social;
-    private final CodeChannels channels;
 
-    public AuthController(AuthService authService, AccountService accountService, VerificationCodeService codes,
-                          AuthenticatorService authenticator, SessionSignIn sessionSignIn,
-                          SocialClientRegistrations social, CodeChannels channels) {
+    public AuthController(AuthService authService, AccountService accountService, SessionSignIn sessionSignIn,
+                          SocialClientRegistrations social) {
         this.authService = authService;
         this.accountService = accountService;
-        this.codes = codes;
-        this.authenticator = authenticator;
         this.sessionSignIn = sessionSignIn;
         this.social = social;
-        this.channels = channels;
     }
 
     /** Spring Security passes in this session's CSRF token; we hand it to the page. */
@@ -102,7 +79,7 @@ public class AuthController {
 
     @GetMapping("/options")
     public SignInOptions options() {
-        return new SignInOptions(social.googleEnabled(), channels.emailAvailable(), channels.textAvailable());
+        return new SignInOptions(social.googleEnabled());
     }
 
     /** Creates an account and signs straight in. 201 = "Created". */
@@ -112,60 +89,16 @@ public class AuthController {
                                    HttpServletRequest request, HttpServletResponse response) {
         AppUser user = authService.register(
                 body.email(), body.password(), body.displayName(), body.phone(), body.style());
-        sessionSignIn.completeSignIn(user, request, response);
-        return SignInResponse.signedIn(user);
+        sessionSignIn.signIn(user, request, response);
+        return SignInResponse.signedIn(accountService.view(user));
     }
 
-    /**
-     * Step 1: email and password. If two-step verification is on, we wait for
-     * a code: one we send by email or text, or one from the person's
-     * authenticator app (nothing to send). Otherwise they're signed in now.
-     */
+    /** Email and password. Right: signed in. Wrong: 401 (see AuthService.checkPassword). */
     @PostMapping("/sign-in")
     public SignInResponse signIn(@RequestBody SignInRequest body,
                                  HttpServletRequest request, HttpServletResponse response) {
         AppUser user = authService.checkPassword(body.email(), body.password());
-
-        TwoFactorMethod method = user.getTwoFactorMethod();
-        if (method == TwoFactorMethod.NONE) {
-            sessionSignIn.completeSignIn(user, request, response);
-            return SignInResponse.signedIn(user);
-        }
-        sessionSignIn.startTwoStep(user, request);
-        if (method == TwoFactorMethod.AUTHENTICATOR) {
-            return SignInResponse.codeRequired(method, SentCode.none());
-        }
-        return SignInResponse.codeRequired(method, codes.send(user, CodePurpose.SIGN_IN));
-    }
-
-    /** Step 2: the 6-digit code (or, with an authenticator app, a backup code). */
-    @PostMapping("/sign-in/verify")
-    public SignInResponse verifyCode(@RequestBody CodeRequest body,
-                                     HttpServletRequest request, HttpServletResponse response) {
-        AppUser user = pendingUser(request);
-        if (user.getTwoFactorMethod() == TwoFactorMethod.AUTHENTICATOR) {
-            authenticator.verifySignIn(user, body.code());
-        } else {
-            codes.verify(user, CodePurpose.SIGN_IN, body.code());
-        }
-        sessionSignIn.completeSignIn(user, request, response);
-        return SignInResponse.signedIn(user);
-    }
-
-    @PostMapping("/sign-in/resend")
-    public SignInResponse resendCode(HttpServletRequest request) {
-        AppUser user = pendingUser(request);
-        if (user.getTwoFactorMethod() == TwoFactorMethod.AUTHENTICATOR) {
-            throw new AuthException(HttpStatus.CONFLICT,
-                    "Your code is in your authenticator app, so there's nothing to send.");
-        }
-        return SignInResponse.codeRequired(user.getTwoFactorMethod(), codes.send(user, CodePurpose.SIGN_IN));
-    }
-
-    // The account that got its password right and is waiting for a code.
-    private AppUser pendingUser(HttpServletRequest request) {
-        Long userId = sessionSignIn.pendingUserId(request).orElseThrow(() -> new AuthException(
-                HttpStatus.UNAUTHORIZED, "Your sign-in timed out. Please enter your email and password again."));
-        return accountService.get(userId);
+        sessionSignIn.signIn(user, request, response);
+        return SignInResponse.signedIn(accountService.view(user));
     }
 }

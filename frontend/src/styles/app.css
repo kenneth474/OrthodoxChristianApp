@@ -220,8 +220,20 @@ label { display: block; margin-bottom: 12px; font-family: var(--font-ui); font-s
   display: block; width: 100%; margin-top: 4px; padding: 10px 12px; font: inherit; font-size: 1rem;
   border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); color: var(--ink);
 }
+:where(select) {
+  padding: 9px 10px; font: inherit; font-size: 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--input-bg); color: var(--ink);
+}
 input:focus-visible, button:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 input[type=radio], input[type=checkbox] { accent-color: var(--accent); }
+/* Patron saint, with their feast day (a month and a day) underneath */
+fieldset.patron { border: none; padding: 0; margin: 0 0 12px; font-family: var(--font-ui); font-size: 0.9rem; }
+fieldset.patron legend { padding: 0; }
+fieldset.patron input { margin-top: 4px; }
+.feast-day { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.feast-day span { color: var(--muted); margin-right: 2px; }
+.feast-day select:first-of-type { flex: 1 1 9em; }
+.feast-day select:last-of-type { flex: 0 0 5.5em; }
 form.inline { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
 form.inline input { margin-top: 0 !important; flex: 1; min-width: 0; }
 button {
@@ -238,24 +250,17 @@ button.link { border: none; background: none; padding: 6px 0; color: var(--accen
   display: block; width: 100%; text-align: center; padding: 11px; margin-bottom: 10px; border-radius: 999px;
   border: 1px solid #c9c2b5; background: #fff; color: #1f1f1f; text-decoration: none; font-family: var(--font-ui);
 }
-.social-button.apple { background: #000; border-color: #555; color: #fff; }
 .social-button.disabled { opacity: 0.5; cursor: not-allowed; }
-.social-button .soon { font-size: 0.8rem; }
 .divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-family: var(--font-ui); font-size: 0.85rem; margin: 6px 0 14px; }
 .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .message { padding: 10px 14px; border-radius: 10px; font-family: var(--font-ui); font-size: 0.9rem; margin: 0 0 14px; }
 .message.error { background: var(--soft-red); color: var(--strict); }
 .message.info { background: var(--soft-green); color: var(--free); }
 .message ul { margin: 6px 0 0; }
-.message .dev { display: block; margin-top: 4px; color: var(--ink); }
 .rules { list-style: none; padding: 0; margin: -4px 0 14px; font-family: var(--font-ui); font-size: 0.85rem; color: var(--muted); }
 .rules li::before { content: "○ "; }
 .rules li.met { color: var(--free); }
 .rules li.met::before { content: "✓ "; }
-.badge { display: inline-block; font-family: var(--font-ui); font-size: 0.75rem; padding: 2px 9px; border-radius: 999px; margin-left: 6px; }
-.badge.ok { background: var(--soft-green); color: var(--free); }
-.badge.warn { background: var(--soft-gold); color: var(--soft-gold-ink); }
-label.choice { display: flex; gap: 8px; align-items: baseline; font-size: 0.95rem; }
 fieldset.choices { border: none; padding: 0; margin: 0 0 14px; }
 fieldset.choices legend { font-family: var(--font-ui); font-size: 0.9rem; margin-bottom: 6px; }
 fieldset.choices .row { display: flex; flex-wrap: wrap; gap: 6px 16px; }
@@ -447,21 +452,11 @@ fieldset.choices .style-picker label.style-option,
 :root[data-style="athos"] :is(.readings summary .reference, .intention-heading, .card-link .title, .fast-title,
   ul.link-list .title, ul.people a, .person, .ministry h2) { font-family: var(--font-body); }
 
-/* ---- Two-step verification: authenticator setup and backup codes ---- */
-.authenticator-setup { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-.authenticator-setup h3 { margin-top: 0; }
-.authenticator-setup ol { padding-left: 20px; margin: 0 0 10px; }
-/* The QR code always on white, so every phone camera can read it, in any style */
-.qr { display: block; margin: 6px auto 12px; background: #fff; padding: 8px; border-radius: 8px; border: 1px solid var(--line); }
-code.secret { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.05em; word-break: break-all; }
-.backup-codes ul {
-  list-style: none; padding: 0; margin: 10px 0 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;
-}
-.backup-codes code {
-  display: block; text-align: center; padding: 6px; border: 1px dashed var(--line); border-radius: 8px;
-  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.95rem; background: var(--bg);
-}
-button.primary-inline { background: var(--button-bg); border-color: var(--button-bg); color: var(--button-ink); }
+/* ---- The Members page (pages/MembersPage.tsx) ---- */
+ul.members { list-style: none; padding: 0; margin: 14px 0 0; }
+ul.members li { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; padding: 12px 16px; }
+ul.members .member-name { font-family: var(--font-display); font-size: 1.15rem; }
+ul.members a { font-family: var(--font-ui); font-size: 0.92rem; overflow-wrap: anywhere; }
 
 /* ---- "A new version of the app is ready" (components/UpdateBanner.tsx) ---- */
 .update-banner {

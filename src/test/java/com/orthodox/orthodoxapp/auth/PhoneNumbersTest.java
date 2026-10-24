@@ -26,9 +26,4 @@ class PhoneNumbersTest {
         assertThrows(AuthException.class, () -> PhoneNumbers.normalize("call me maybe"));
         assertThrows(AuthException.class, () -> PhoneNumbers.normalize("+0123456789"));   // no country starts with 0
     }
-
-    @Test
-    void maskShowsOnlyTheLastFourDigits() {
-        assertEquals("•••• 0123", PhoneNumbers.mask("+12145550123"));
-    }
 }

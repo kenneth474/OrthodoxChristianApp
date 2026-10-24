@@ -7,8 +7,8 @@
   here = LiturgicalDay.java there. If we then misspell a field (day.titel) or
   use a number as text, VS Code underlines it in red before we even run the app.
 
-  "string | null" means "text, or nothing". A list like ['NONE', 'EMAIL', 'SMS']
-  written as 'NONE' | 'EMAIL' | 'SMS' means "exactly one of these words".
+  "string | null" means "text, or nothing". A list of words written as
+  'SMALL' | 'NORMAL' | 'LARGE' means "exactly one of these words".
 */
 
 // ----- The day: GET /api/day/{year}/{month}/{day} (LiturgicalDay.java) -----
@@ -61,8 +61,7 @@ export interface LiturgicalDay {
 
 // ----- Accounts: /api/account and /api/auth (AccountView.java, AuthController.java) -----
 
-export type TwoFactorMethod = 'NONE' | 'EMAIL' | 'SMS' | 'AUTHENTICATOR'
-export type TextSize = 'NORMAL' | 'LARGE' | 'LARGER'
+export type TextSize = 'SMALL' | 'NORMAL' | 'LARGE'
 export type Theme = 'SYSTEM' | 'LIGHT' | 'DARK'
 /** The app's five looks (AppStyle.java; see lib/styles.ts). */
 export type AppStyle = 'ILLUMINATED' | 'MOSAIC' | 'VIGIL' | 'ATHOS' | 'SEASONS'
@@ -70,46 +69,44 @@ export type AppStyle = 'ILLUMINATED' | 'MOSAIC' | 'VIGIL' | 'ATHOS' | 'SEASONS'
 export interface Account {
   email: string
   displayName: string
-  phoneNumber: string | null
-  emailVerified: boolean
-  phoneVerified: boolean
-  twoFactorMethod: TwoFactorMethod
+  phoneNumber: string | null // e.g. "+12145550123"
   hasPassword: boolean
   googleLinked: boolean
   patronSaint: string | null
-  nameDay: string | null // "MM-DD"
+  nameDay: string | null // your patron saint's feast day, "MM-DD"
   homeParish: string | null
   photoVersion: number | null // changes when the photo does; null = no photo
   textSize: TextSize
   theme: Theme
   style: AppStyle
+  admin: boolean // may open the Members page (admin/Admins.java)
 }
 
-/** Where a 6-digit code went (SentCode.java). */
-export interface SentCode {
-  sentTo: string | null
-  developmentMode: boolean // true = printed in the backend's terminal, not really sent
-}
-
+/** The reply to signing in or creating an account. */
 export interface SignInResponse {
-  status: 'SIGNED_IN' | 'CODE_REQUIRED'
-  method: TwoFactorMethod | null // where the code is: sent by EMAIL or SMS, or in the AUTHENTICATOR app
-  sentTo: string | null
-  developmentMode: boolean
-  account: Account | null
+  status: 'SIGNED_IN'
+  account: Account
 }
 
 /** What the server offers (AuthController.SignInOptions). */
 export interface SignInOptions {
   google: boolean // the "Continue with Google" button works
-  emailCodes: boolean // codes can really be emailed
-  textCodes: boolean // codes can really be texted
 }
 
-/** Setting up an authenticator app (AuthenticatorService.Setup). */
-export interface AuthenticatorSetup {
-  secret: string // to type into the app by hand
-  uri: string // "otpauth://...": what the QR code holds
+// ----- The Members page: /api/admin/members (MembersController.java) -----
+
+export interface Member {
+  name: string
+  email: string
+  phoneNumber: string | null
+  password: boolean // can sign in with a password (never the password itself)
+  google: boolean // can sign in with Google
+  joined: string // when the account was made, e.g. "2026-10-24T14:03:00Z"
+}
+
+export interface Members {
+  count: number
+  members: Member[] // newest first
 }
 
 // ----- The Bible: /api/bible (BibleBook.java, BibleChapter.java) -----

@@ -7,7 +7,7 @@
                                       "Match my device" follows the device;
                                       Candlelit vigil is always dark)
       data-season="lent" | ...       (for the Liturgical seasons style)
-      data-text-size="normal" | "large" | "larger"
+      data-text-size="small" | "normal" | "large"
 
   When you're signed in, your choices are saved to your account. A copy is
   also kept in this browser (localStorage), so index.html can apply it

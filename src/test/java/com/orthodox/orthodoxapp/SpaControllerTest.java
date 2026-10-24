@@ -26,11 +26,18 @@ class SpaControllerTest {
     @Test
     void reactScreensAreServedTheAppPage() throws Exception {
         for (String address : new String[] {"/bible", "/bible/PSA", "/bible/PSA/50", "/prayers",
-                "/prayers/morning", "/church", "/church/dioceses", "/profile", "/sign-in"}) {
+                "/prayers/morning", "/church", "/church/dioceses", "/profile", "/profile/members", "/sign-in"}) {
             mvc.perform(get(address))
                     .andExpect(status().isOk())
                     .andExpect(forwardedUrl("/index.html"));
         }
+    }
+
+    @Test
+    void thePrivacyPolicyIsPublic() throws Exception {
+        mvc.perform(get("/privacy"))
+                .andExpect(status().isOk())
+                .andExpect(forwardedUrl("/privacy.html"));
     }
 
     @Test

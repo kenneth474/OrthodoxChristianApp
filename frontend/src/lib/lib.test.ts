@@ -9,7 +9,8 @@
 import { describe, expect, it } from 'vitest'
 import type { PrayerBook } from '../types'
 import { addDays, isIsoDate } from './dates'
-import { forSpeaking, toChunks } from './listen'
+import { forSpeaking, offeredVoices, toChunks } from './listen'
+import { phoneText } from './phone'
 import { expandItems, spokenLine, timesLabel } from './prayerBook'
 import { htmlToSpeech, sanitizeHtml } from './sanitize'
 import { plainScripture, toParagraphs } from './scripture'
@@ -64,6 +65,41 @@ describe('reading aloud', () => {
       expect(chunk.length).toBeLessThanOrEqual(200)
       expect(chunk.endsWith('.')).toBe(true)
     }
+  })
+
+  // A pretend voice: only the fields offeredVoices looks at.
+  const voice = (name: string, lang = 'en-US', extra: Partial<SpeechSynthesisVoice> = {}) =>
+    ({ name, lang, localService: true, default: false, voiceURI: name, ...extra }) as SpeechSynthesisVoice
+
+  it('offers only David, Mark and Zira on Windows', () => {
+    const windows = [
+      voice('Microsoft Zira - English (United States)'),
+      voice('Microsoft George - English (United Kingdom)', 'en-GB'),
+      voice('Microsoft David - English (United States)', 'en-US', { default: true }),
+      voice('Microsoft Hazel - English (United Kingdom)', 'en-GB'),
+      voice('Microsoft Mark - English (United States)'),
+      voice('Microsoft Aria Online (Natural) - English (United States)', 'en-US', { localService: false }),
+    ]
+    expect(offeredVoices(windows).map((v) => v.name)).toEqual([
+      'Microsoft David - English (United States)',
+      'Microsoft Mark - English (United States)',
+      'Microsoft Zira - English (United States)',
+    ])
+  })
+
+  it('offers three ordinary American voices on an iPhone, skipping the joke ones', () => {
+    const iphone = [
+      voice('Aaron'),
+      voice('Bubbles'),
+      voice('Daniel', 'en-GB'),
+      voice('Fred'),
+      voice('Nicky'),
+      voice('Samantha', 'en-US', { default: true }),
+      voice('Zarvox'),
+      voice('Thomas', 'fr-FR'),
+      voice('Ava (Premium)'),
+    ]
+    expect(offeredVoices(iphone).map((v) => v.name)).toEqual(['Ava (Premium)', 'Samantha', 'Aaron'])
   })
 })
 
@@ -144,6 +180,13 @@ describe('the Church year (Liturgical seasons style)', () => {
   })
 })
 
+describe('phone numbers', () => {
+  it('shows US numbers the usual way, and others as saved', () => {
+    expect(phoneText('+12145550123')).toBe('(214) 555-0123')
+    expect(phoneText('+442079460958')).toBe('+442079460958')
+  })
+})
+
 describe('tabs', () => {
   it('knows which tab each address belongs to', () => {
     expect(tabFor('/')).toBe('home')
@@ -151,6 +194,7 @@ describe('tabs', () => {
     expect(tabFor('/prayers')).toBe('prayers')
     expect(tabFor('/church/dioceses/wichita')).toBe('church')
     expect(tabFor('/sign-in')).toBe('profile')
+    expect(tabFor('/profile/members')).toBe('profile')
     expect(tabFor('/biblestudy')).toBeNull() // not /bible
     expect(tabFor('/nowhere')).toBeNull()
   })

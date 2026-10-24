@@ -10,14 +10,13 @@ package com.orthodox.orthodoxapp.account;
  * photoVersion changes whenever the photo does (null = no photo). Pages add
  * it to the photo's address (/api/account/photo?v=...) so the browser fetches
  * the new picture instead of showing an old saved copy.
+ *
+ * admin = this person may open the Members page (see admin/Admins.java).
  */
 public record AccountView(
         String email,
         String displayName,
         String phoneNumber,
-        boolean emailVerified,
-        boolean phoneVerified,
-        TwoFactorMethod twoFactorMethod,
         boolean hasPassword,
         boolean googleLinked,
         String patronSaint,
@@ -26,16 +25,14 @@ public record AccountView(
         Long photoVersion,
         TextSize textSize,
         Theme theme,
-        AppStyle style) {
+        AppStyle style,
+        boolean admin) {
 
-    public static AccountView from(AppUser user) {
+    public static AccountView from(AppUser user, boolean admin) {
         return new AccountView(
                 user.getEmail(),
                 user.getDisplayName(),
                 user.getPhoneNumber(),
-                user.isEmailVerified(),
-                user.isPhoneVerified(),
-                user.getTwoFactorMethod(),
                 user.hasPassword(),
                 user.getGoogleId() != null,
                 user.getPatronSaint(),
@@ -44,6 +41,7 @@ public record AccountView(
                 user.getPhotoUpdatedAt() == null ? null : user.getPhotoUpdatedAt().toEpochMilli(),
                 user.getTextSize(),
                 user.getTheme(),
-                user.getStyle());
+                user.getStyle(),
+                admin);
     }
 }

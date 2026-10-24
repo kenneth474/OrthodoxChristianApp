@@ -25,6 +25,6 @@ export function tabFor(pathname: string): TabId | null {
   for (const id of ['bible', 'prayers', 'church'] as const) {
     if (pathname === `/${id}` || pathname.startsWith(`/${id}/`)) return id
   }
-  if (pathname === '/profile' || pathname === '/sign-in') return 'profile'
+  if (pathname === '/profile' || pathname.startsWith('/profile/') || pathname === '/sign-in') return 'profile'
   return null
 }

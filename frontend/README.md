@@ -20,7 +20,8 @@ data through its `/api/...` endpoints.
 frontend/
 ├── index.html              The one HTML page (home-screen icon, style set before drawing)
 ├── vite.config.ts          Dev server, proxy to the backend, build output folder, tests
-├── public/                 Copied as-is: icons, manifest.webmanifest, data/prayers.json, data/church.json
+├── public/                 Copied as-is: icons, manifest.webmanifest, data/prayers.json, data/church.json,
+│                           and privacy.html (the privacy policy, a plain page outside the app)
 └── src/
     ├── main.tsx            Where React starts (and the fonts are loaded)
     ├── App.tsx             The addresses, and the shared layout
@@ -31,9 +32,11 @@ frontend/
     ├── tabs-context.ts     useTabs(): which tab is showing, where each tab was left
     ├── components/         TabsHost (keeps every tab alive), TabBar, PullToRefresh,
     │                       ornaments (cross, feast signs, page header), StylePicker, Player
-    ├── pages/              One file per screen: Home, Bible, Prayers, Church, Profile, Sign-in
+    ├── pages/              One file per screen: Home, Bible, Prayers, Church, Profile, Sign-in,
+    │                       Members (for administrators)
     ├── lib/                Plain helpers: data loading (data.ts), styles, Church seasons and
-    │                       Pascha, the daily intention, tabs, dates, reading aloud, prayers
+    │                       Pascha, the daily intention, tabs, dates, phone numbers, reading
+    │                       aloud (and which three voices to offer), prayers
     └── styles/             theme.css (the five styles, light and dark) and app.css (the screens)
 ```
 

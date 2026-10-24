@@ -1,6 +1,5 @@
 package com.orthodox.orthodoxapp.auth;
 
-import com.orthodox.orthodoxapp.account.AppUser;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -17,8 +16,13 @@ import org.springframework.stereotype.Component;
  * SocialSignInHandler: runs after Google has confirmed who you are.
  *
  * Spring Security has already checked Google's ID token. Here we find or
- * create your AppUser (AuthService.signInWithGoogle), sign you in with the
- * same kind of session a password sign-in uses, and send you home.
+ * create your AppUser (AuthService.signInWithGoogle), sign you in the same
+ * way a password sign-in does, and send you on:
+ *   - a brand-new account: to Profile, which welcomes you and asks (if you
+ *     like) for your phone number
+ *   - an account whose password Google's sign-in replaced: to Profile, which
+ *     explains that you now sign in with Google
+ *   - otherwise: Home
  */
 @Component
 public class SocialSignInHandler implements AuthenticationSuccessHandler {
@@ -42,13 +46,19 @@ public class SocialSignInHandler implements AuthenticationSuccessHandler {
         boolean emailVerified = "true".equals(String.valueOf(person.getClaims().get(StandardClaimNames.EMAIL_VERIFIED)));
 
         try {
-            AppUser user = authService.signInWithGoogle(
+            AuthService.GoogleSignIn result = authService.signInWithGoogle(
                     person.getSubject(),
                     person.getEmail(),
                     emailVerified,
                     person.getFullName());
-            sessionSignIn.completeSignIn(user, request, response);
-            response.sendRedirect("/");
+            sessionSignIn.signIn(result.user(), request, response);
+            if (result.newAccount()) {
+                response.sendRedirect("/profile?welcome=google");
+            } else if (result.passwordRemoved()) {
+                response.sendRedirect("/profile?google=linked");
+            } else {
+                response.sendRedirect("/");
+            }
         } catch (AuthException ex) {
             // e.g. no verified email: undo the half-finished sign-in.
             SecurityContextHolder.clearContext();

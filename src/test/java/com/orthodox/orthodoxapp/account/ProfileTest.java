@@ -39,29 +39,67 @@ class ProfileTest {
     private MockMvc mvc;
 
     @Test
-    void savesPatronSaintNameDayAndHomeParish() throws Exception {
+    void savesPatronSaintWithTheirFeastDayAndHomeParish() throws Exception {
         MockHttpSession browser = register("profile@example.com");
 
         mvc.perform(put("/api/account/profile").session(browser).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"displayName": "Kenneth", "patronSaint": "St. Nicholas the Wonderworker",
-                                 "nameDay": "2026-12-06", "homeParish": "Saints Constantine and Helen, Carrollton"}"""))
+                                 "nameDay": "12-06", "homeParish": "Saints Constantine and Helen, Carrollton"}"""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.patronSaint").value("St. Nicholas the Wonderworker"))
-                .andExpect(jsonPath("$.nameDay").value("12-06"))   // the year is dropped
+                .andExpect(jsonPath("$.nameDay").value("12-06"))   // a month and day, no year
                 .andExpect(jsonPath("$.homeParish").value("Saints Constantine and Helen, Carrollton"));
     }
 
     @Test
-    void anImpossibleNameDayIsRefused() throws Exception {
+    void aFullDateFromAnOlderCopyOfTheAppKeepsJustTheMonthAndDay() throws Exception {
+        MockHttpSession browser = register("olddate@example.com");
+        mvc.perform(put("/api/account/profile").session(browser).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName": "Test", "nameDay": "2026-12-06"}"""))
+                .andExpect(jsonPath("$.nameDay").value("12-06"));
+    }
+
+    @Test
+    void aFeastDayCanBeOnFebruary29th() throws Exception {
+        // St. John Cassian: kept on February 29th in leap years.
+        MockHttpSession browser = register("leap@example.com");
+        mvc.perform(put("/api/account/profile").session(browser).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName": "Test", "nameDay": "02-29"}"""))
+                .andExpect(jsonPath("$.nameDay").value("02-29"));
+    }
+
+    @Test
+    void anImpossibleFeastDayIsRefused() throws Exception {
         MockHttpSession browser = register("badday@example.com");
         mvc.perform(put("/api/account/profile").session(browser).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"displayName": "Test", "nameDay": "02-30"}"""))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("Choose a valid date for your name day."));
+                .andExpect(jsonPath("$.detail").value("Choose a real month and day for the feast day."));
+    }
+
+    @Test
+    void savesAPhoneNumberWithoutACode() throws Exception {
+        MockHttpSession browser = register("phone@example.com");
+        mvc.perform(put("/api/account/phone").session(browser).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone": "214.555.0177"}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phoneNumber").value("+12145550177"));
+        // A blank number removes it.
+        mvc.perform(put("/api/account/phone").session(browser).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone": ""}"""))
+                .andExpect(jsonPath("$.phoneNumber").doesNotExist());
     }
 
     @Test
@@ -72,13 +110,15 @@ class ProfileTest {
                 .andExpect(jsonPath("$.theme").value("SYSTEM"))
                 .andExpect(jsonPath("$.style").value("ILLUMINATED"));
 
-        mvc.perform(put("/api/account/appearance").session(browser).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"textSize": "LARGER", "theme": "DARK", "style": "VIGIL"}"""))
-                .andExpect(jsonPath("$.textSize").value("LARGER"))
-                .andExpect(jsonPath("$.theme").value("DARK"))
-                .andExpect(jsonPath("$.style").value("VIGIL"));
+        for (String size : new String[] {"SMALL", "LARGE", "NORMAL"}) {
+            mvc.perform(put("/api/account/appearance").session(browser).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"textSize": "%s", "theme": "DARK", "style": "VIGIL"}""".formatted(size)))
+                    .andExpect(jsonPath("$.textSize").value(size))
+                    .andExpect(jsonPath("$.theme").value("DARK"))
+                    .andExpect(jsonPath("$.style").value("VIGIL"));
+        }
 
         // Without a style (an older copy of the app), the chosen style stays.
         mvc.perform(put("/api/account/appearance").session(browser).with(csrf())

@@ -59,7 +59,24 @@ curl -fsS -b "$COOKIES" "$BASE/api/account" | jq -e --arg email "$EMAIL" '.email
   || fail "signed in after creating the account"
 pass "creating an account and staying signed in"
 
-# 6. Upload a profile photo (the app's own icon) and read it back: checks
+# 6. Staying signed in: the long-lasting "stay-signed-in" cookie alone, with
+#    no session (as after the server restarts), signs you in again
+#    (StaySignedIn.java). In curl's cookie file, column 6 is a cookie's name
+#    and column 7 its value.
+STAY="$(awk '$6 == "stay-signed-in" { print $7 }' "$COOKIES")"
+[ -n "$STAY" ] || fail "the stay-signed-in cookie was set"
+curl -fsS -H "Cookie: stay-signed-in=$STAY" "$BASE/api/account" \
+  | jq -e --arg email "$EMAIL" '.email == $email' > /dev/null || fail "signed in again by the stay-signed-in cookie"
+pass "signed in again with only the stay-signed-in cookie"
+
+# 7. A choice added after the database was made can be saved: PostgreSQL's
+#    lists of allowed choices are removed at startup (DatabaseFixes.java).
+curl -fsS -X PUT -b "$COOKIES" -c "$COOKIES" -H "$(csrf_header)" -H 'Content-Type: application/json' \
+  -d '{"textSize":"SMALL","theme":"SYSTEM","style":"ATHOS"}' "$BASE/api/account/appearance" \
+  | jq -e '.textSize == "SMALL"' > /dev/null || fail "saving the Small text size"
+pass "saving the Small text size"
+
+# 8. Upload a profile photo (the app's own icon) and read it back: checks
 #    that pictures are stored in and read from PostgreSQL correctly.
 curl -fsS -o /dev/null -b "$COOKIES" -c "$COOKIES" -H "$(csrf_header)" \
   -F "photo=@frontend/public/icons/icon-512.png;type=image/png" "$BASE/api/account/photo" \
@@ -68,7 +85,7 @@ TYPE="$(curl -fsS -o "$PHOTO" -w '%{content_type}' -b "$COOKIES" "$BASE/api/acco
 [ "$TYPE" = "image/jpeg" ] && [ -s "$PHOTO" ] || fail "reading the profile photo back (got $TYPE)"
 pass "profile photo saved and read back"
 
-# 7. Today's calendar comes from the Orthocal website. If that site is down
+# 9. Today's calendar comes from the Orthocal website. If that site is down
 #    it's not our container's fault, so only warn instead of failing.
 if curl -fsS "$BASE/api/today" | jq -e '.title' > /dev/null; then
   pass "today's calendar (from Orthocal)"

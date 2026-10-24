@@ -52,7 +52,7 @@
 
         <!-- Spring Security + OAuth2 client: protects pages that need a login,
              handles sessions and CSRF protection, hashes passwords, and does
-             "Sign in with Google / Apple" (OAuth2 / OpenID Connect). -->
+             "Sign in with Google" (OAuth2 / OpenID Connect). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security-oauth2-client</artifactId>
@@ -81,13 +81,6 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
-        </dependency>
-
-        <!-- Mail: sends real emails (2FA codes) once an SMTP server is set in
-             secrets.properties. Until then, codes are printed to the console. -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
         <!-- DevTools: automatically restarts the app when you save a Java file,

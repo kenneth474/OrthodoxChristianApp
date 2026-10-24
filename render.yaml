@@ -8,9 +8,10 @@
 # This is the only Render-specific file. Moving to another host later means
 # running the same Dockerfile there and giving it a DATABASE_URL.
 #
-# Secrets (email password, Google keys) are NOT written here, because this
-# file is public on GitHub. Add them in Render's dashboard instead:
-# the web service > Environment.
+# Secrets and personal settings (the Google sign-in keys, the administrators'
+# emails) are NOT written here, because this file is public on GitHub. They're
+# in Render's dashboard instead: the web service > Environment
+# (APP_AUTH_GOOGLE_CLIENTID, APP_AUTH_GOOGLE_CLIENTSECRET, APP_ADMIN_EMAILS).
 
 services:
   - type: web

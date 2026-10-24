@@ -1,39 +1,28 @@
 package com.orthodox.orthodoxapp.account;
 
+import com.orthodox.orthodoxapp.admin.Admins;
 import com.orthodox.orthodoxapp.auth.AuthException;
-import com.orthodox.orthodoxapp.auth.AuthenticatorService;
-import com.orthodox.orthodoxapp.auth.CodePurpose;
 import com.orthodox.orthodoxapp.auth.PhoneNumbers;
-import com.orthodox.orthodoxapp.auth.SentCode;
-import com.orthodox.orthodoxapp.auth.VerificationCodeService;
-import com.orthodox.orthodoxapp.notify.CodeChannels;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.MonthDay;
-import java.util.Objects;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * AccountService: the rules for changing your own account: your profile,
- * appearance, phone number, verifying your email and phone, and two-step
- * verification. (Photos have their own ProfilePhotoService.)
+ * appearance and phone number. (Photos have their own ProfilePhotoService.)
  */
 @Service
 public class AccountService {
 
     private final AppUserRepository users;
-    private final VerificationCodeService codes;
-    private final CodeChannels channels;
-    private final AuthenticatorService authenticator;
+    private final Admins admins;
 
-    public AccountService(AppUserRepository users, VerificationCodeService codes,
-                          CodeChannels channels, AuthenticatorService authenticator) {
+    public AccountService(AppUserRepository users, Admins admins) {
         this.users = users;
-        this.codes = codes;
-        this.channels = channels;
-        this.authenticator = authenticator;
+        this.admins = admins;
     }
 
     /** Loads an account. 401 if it no longer exists (e.g. the database was reset). */
@@ -45,12 +34,17 @@ public class AccountService {
                 .orElseThrow(() -> new AuthException(HttpStatus.UNAUTHORIZED, "Please sign in again."));
     }
 
+    /** What the person's own pages may see about their account (see AccountView). */
+    public AccountView view(AppUser user) {
+        return AccountView.from(user, admins.isAdmin(user));
+    }
+
     /**
-     * Saves the profile card: name (required), patron saint, name day and
-     * home parish (all optional; blank removes them).
+     * Saves the profile card: name (required), patron saint and their feast
+     * day (your name day), and home parish (all optional; blank removes them).
      *
-     * @param nameDay a date from the page's date picker ("2026-12-06") or "12-06";
-     *                only the month and day are kept
+     * @param nameDay the feast day as "12-06" (month-day); an older copy of the
+     *                app may still send a full date ("2026-12-06"), whose year is dropped
      */
     @Transactional
     public AppUser updateProfile(Long userId, String displayName, String patronSaint,
@@ -79,108 +73,11 @@ public class AccountService {
         return users.save(user);
     }
 
-    /**
-     * Adds, changes or removes (blank) the phone number. A new number has to be
-     * verified again, so we text it a code straight away.
-     *
-     * @return where the code went, or SentCode.none() if no code was needed
-     */
+    /** Adds, changes or removes (blank) the phone number. It isn't checked with a code. */
     @Transactional
-    public SentCode updatePhone(Long userId, String phone) {
+    public AppUser updatePhone(Long userId, String phone) {
         AppUser user = get(userId);
-        String newPhone = (phone == null || phone.isBlank()) ? null : PhoneNumbers.normalize(phone);
-        if (Objects.equals(newPhone, user.getPhoneNumber())) {
-            return SentCode.none(); // nothing changed
-        }
-        if (user.getTwoFactorMethod() == TwoFactorMethod.SMS) {
-            throw new AuthException(HttpStatus.CONFLICT,
-                    "Turn off text-message verification before changing or removing your number.");
-        }
-        user.setPhoneNumber(newPhone);
-        user.setPhoneVerified(false);
-        users.save(user);
-        // No texts on this server yet: keep the number, verify it later.
-        return newPhone == null || !channels.textAvailable() ? SentCode.none() : codes.send(user, CodePurpose.VERIFY_PHONE);
-    }
-
-    public SentCode sendEmailCode(Long userId) {
-        AppUser user = get(userId);
-        if (user.isEmailVerified()) {
-            throw new AuthException(HttpStatus.CONFLICT, "Your email is already verified.");
-        }
-        if (!channels.emailAvailable()) {
-            throw new AuthException(HttpStatus.CONFLICT,
-                    "Email isn't set up on this server yet, so we can't send you a code.");
-        }
-        return codes.send(user, CodePurpose.VERIFY_EMAIL);
-    }
-
-    /** noRollbackFor: keep the wrong-guess count (see VerificationCodeService.verify). */
-    @Transactional(noRollbackFor = AuthException.class)
-    public AppUser verifyEmail(Long userId, String code) {
-        AppUser user = get(userId);
-        codes.verify(user, CodePurpose.VERIFY_EMAIL, code);
-        user.setEmailVerified(true);
-        return users.save(user);
-    }
-
-    public SentCode sendPhoneCode(Long userId) {
-        AppUser user = get(userId);
-        if (user.getPhoneNumber() == null) {
-            throw new AuthException(HttpStatus.CONFLICT, "Add a phone number first.");
-        }
-        if (user.isPhoneVerified()) {
-            throw new AuthException(HttpStatus.CONFLICT, "Your phone number is already verified.");
-        }
-        if (!channels.textAvailable()) {
-            throw new AuthException(HttpStatus.CONFLICT,
-                    "Text messages aren't set up on this server yet, so we can't send you a code.");
-        }
-        return codes.send(user, CodePurpose.VERIFY_PHONE);
-    }
-
-    @Transactional(noRollbackFor = AuthException.class)
-    public AppUser verifyPhone(Long userId, String code) {
-        AppUser user = get(userId);
-        codes.verify(user, CodePurpose.VERIFY_PHONE, code);
-        user.setPhoneVerified(true);
-        return users.save(user);
-    }
-
-    /**
-     * Turns two-step verification off, or on by email or text. (The
-     * authenticator app is turned on by AuthenticatorService.confirmSetup,
-     * once the app has shown a right code.) Codes can only go somewhere
-     * you've proven is yours, and that this server can really reach, or you
-     * could lock yourself out.
-     */
-    @Transactional
-    public AppUser setTwoFactor(Long userId, TwoFactorMethod method) {
-        AppUser user = get(userId);
-        TwoFactorMethod chosen = method == null ? TwoFactorMethod.NONE : method;
-
-        if (chosen != TwoFactorMethod.NONE && !user.hasPassword()) {
-            throw new AuthException(HttpStatus.CONFLICT, "Two-step verification protects password sign-in. "
-                    + "You sign in with Google, which protects your account with its own security.");
-        }
-        if (chosen == TwoFactorMethod.AUTHENTICATOR && user.getTwoFactorMethod() != TwoFactorMethod.AUTHENTICATOR) {
-            throw new AuthException(HttpStatus.CONFLICT, "Set up your authenticator app first, by scanning its QR code.");
-        }
-        if (chosen == TwoFactorMethod.EMAIL && !(user.isEmailVerified() && channels.emailAvailable())) {
-            throw new AuthException(HttpStatus.CONFLICT, channels.emailAvailable()
-                    ? "Verify your email address first."
-                    : "Email codes aren't available on this server yet. Use an authenticator app instead.");
-        }
-        if (chosen == TwoFactorMethod.SMS && !(user.isPhoneVerified() && channels.textAvailable())) {
-            throw new AuthException(HttpStatus.CONFLICT, channels.textAvailable()
-                    ? "Add and verify your phone number first."
-                    : "Text-message codes aren't available on this server yet. Use an authenticator app instead.");
-        }
-        // Leaving the authenticator app: forget its secret and backup codes.
-        if (user.getTwoFactorMethod() == TwoFactorMethod.AUTHENTICATOR && chosen != TwoFactorMethod.AUTHENTICATOR) {
-            authenticator.turnOff(user);
-        }
-        user.setTwoFactorMethod(chosen);
+        user.setPhoneNumber((phone == null || phone.isBlank()) ? null : PhoneNumbers.normalize(phone));
         return users.save(user);
     }
 
@@ -196,8 +93,8 @@ public class AccountService {
         return text;
     }
 
-    // "2026-12-06" or "12-06" -> "12-06". MonthDay is Java's type for a date
-    // without a year, which is exactly what a feast day is.
+    // "12-06" (or "2026-12-06") -> "12-06". MonthDay is Java's type for a
+    // date without a year, which is exactly what a feast day is.
     static String normalizeNameDay(String input) {
         if (input == null || input.isBlank()) {
             return null;
@@ -209,7 +106,7 @@ public class AccountService {
                     : MonthDay.parse("--" + text); // MonthDay's own format is "--12-06"
             return "%02d-%02d".formatted(day.getMonthValue(), day.getDayOfMonth());
         } catch (DateTimeException ex) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose a valid date for your name day.");
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose a real month and day for the feast day.");
         }
     }
 }

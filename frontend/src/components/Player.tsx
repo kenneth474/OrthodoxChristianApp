@@ -16,10 +16,10 @@ export function Player() {
       <div className="player-title">{listen.title}</div>
       <div className="player-controls">
         <button type="button" onClick={togglePause}>
-          {listen.paused ? '▶ Resume' : '❚❚ Pause'}
+          {listen.paused ? 'Resume' : 'Pause'}
         </button>
         <button type="button" onClick={stop}>
-          ■ Stop
+          Stop
         </button>
         <label>
           Speed{' '}

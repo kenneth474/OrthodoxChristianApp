@@ -19,7 +19,8 @@ import org.springframework.security.web.servlet.util.matcher.PathPatternRequestM
  * Spring Security checks every request BEFORE it reaches a controller, using
  * a chain of "filters" (the SecurityFilterChain built below). It:
  *   - decides which addresses need a signed-in user
- *   - loads the signed-in user from the session
+ *   - loads the signed-in user from the session, or from the "stay signed
+ *     in" cookie when the session has gone (see StaySignedIn)
  *   - blocks CSRF attacks (see below)
  *   - handles signing out, and Google sign-in
  *
@@ -51,22 +52,30 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
                                             SocialClientRegistrations social,
-                                            SocialSignInHandler socialSignInHandler) throws Exception {
+                                            SocialSignInHandler socialSignInHandler,
+                                            StaySignedIn staySignedIn) throws Exception {
         http
             // WHO CAN SEE WHAT. Rules are checked top to bottom; the first match wins.
             // Anything not listed needs a signed-in user ("deny by default"), so
             // a new page or endpoint is private until we decide otherwise.
             .authorizeHttpRequests(auth -> auth
                 // The React app: its page, its files (built by Vite into assets/),
-                // the home-screen icons, and the prayer book data. Every screen's
-                // address is public too; screens that need an account ask the API,
-                // which answers 401 when you're not signed in.
+                // the home-screen icons, the prayer book data and the privacy
+                // policy. Every screen's address is public too; screens that need
+                // an account ask the API, which answers 401 when you're not signed in.
                 .requestMatchers("/", "/index.html", "/assets/**", "/icons/**", "/data/**",
-                        "/manifest.webmanifest", "/favicon.ico", "/error").permitAll()
+                        "/manifest.webmanifest", "/favicon.ico", "/privacy", "/privacy.html", "/error").permitAll()
                 .requestMatchers("/bible", "/bible/**", "/prayers", "/prayers/**", "/church", "/church/**",
-                        "/profile", "/sign-in").permitAll()
+                        "/profile", "/profile/**", "/sign-in").permitAll()
                 .requestMatchers("/api/today", "/api/day/**", "/api/bible/**", "/api/auth/**").permitAll()
                 .anyRequest().authenticated())
+
+            // Stay signed in: when a request has no signed-in session, check
+            // the long-lasting cookie (StaySignedIn). The key lets Spring
+            // Security confirm that those sign-ins were made by StaySignedIn.
+            .rememberMe(remember -> remember
+                .rememberMeServices(staySignedIn)
+                .key(staySignedIn.tokenKey()))
 
             // For /api/... addresses, "not signed in" is a plain 401 error (the
             // page's JavaScript then shows the sign-in page) instead of a redirect.
@@ -74,7 +83,8 @@ public class SecurityConfig {
                     new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                     PathPatternRequestMatcher.withDefaults().matcher("/api/**")))
 
-            // POST /api/auth/sign-out ends the session and replies 200 OK.
+            // POST /api/auth/sign-out ends the session, deletes the "stay signed
+            // in" cookie (StaySignedIn.logout) and replies 200 OK.
             .logout(logout -> logout
                 .logoutRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/sign-out"))
                 .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler()));

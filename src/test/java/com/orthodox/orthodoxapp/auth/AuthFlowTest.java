@@ -1,39 +1,27 @@
 package com.orthodox.orthodoxapp.auth;
 
-import static org.hamcrest.Matchers.startsWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.jayway.jsonpath.JsonPath;
 import com.orthodox.orthodoxapp.account.AppUser;
-import com.orthodox.orthodoxapp.notify.EmailSender;
-import com.orthodox.orthodoxapp.notify.SmsSender;
-import com.orthodox.orthodoxapp.notify.TwilioVerify;
-import java.time.Instant;
-import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import com.orthodox.orthodoxapp.account.AppUserRepository;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -44,11 +32,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * @SpringBootTest starts the real app (all our classes, Spring Security, the
  * database) but with an in-memory database that disappears afterwards.
  * MockMvc sends pretend web requests, exactly as a browser would, without a
- * real server. MockHttpSession plays the part of the browser's session cookie.
- *
- * @MockitoBean swaps the email and text senders for "mocks": fakes that send
- * nothing but remember what they were asked to send, so the test can read
- * the 6-digit codes.
+ * real server. MockHttpSession plays the part of the browser's session
+ * cookie; the "stay signed in" cookie is passed along by hand.
  */
 @SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:authflow;DB_CLOSE_DELAY=-1")
 @AutoConfigureMockMvc
@@ -62,15 +47,8 @@ class AuthFlowTest {
     @Autowired
     private AuthService authService;
 
-    @MockitoBean
-    private EmailSender emailSender;
-
-    @MockitoBean
-    private SmsSender smsSender;
-
-    // A pretend Twilio Verify: switched off (configured() = false) unless a test says otherwise.
-    @MockitoBean
-    private TwilioVerify twilioVerify;
+    @Autowired
+    private AppUserRepository users;
 
     // ----- Creating an account -----
 
@@ -90,9 +68,9 @@ class AuthFlowTest {
         mvc.perform(get("/api/account").session(browser))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("anna@example.com"))
-                .andExpect(jsonPath("$.phoneNumber").value("+12145550123"))
-                .andExpect(jsonPath("$.emailVerified").value(false))
-                .andExpect(jsonPath("$.twoFactorMethod").value("NONE"));
+                .andExpect(jsonPath("$.phoneNumber").value("+12145550123")) // saved as typed, tidied, not checked
+                .andExpect(jsonPath("$.hasPassword").value(true))
+                .andExpect(jsonPath("$.admin").value(false));
 
         mvc.perform(post("/api/auth/sign-out").session(browser).with(csrf()))
                 .andExpect(status().isOk());
@@ -103,11 +81,24 @@ class AuthFlowTest {
     @Test
     void theSameEmailCantRegisterTwice() throws Exception {
         register("twice@example.com", null);
-        send(post("/api/auth/register"), new MockHttpSession(), registration("TWICE@example.com", null))
-                .andExpect(status().isConflict());
+        // Capital letters and spaces don't make it a different email.
+        send(post("/api/auth/register"), new MockHttpSession(), registration(" TWICE@example.com", null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("An account with this email already exists. Try signing in instead."));
     }
 
     // ----- Signing in -----
+
+    @Test
+    void theRightPasswordSignsYouInWithNoCodeToType() throws Exception {
+        register("plain@example.com", null);
+        MockHttpSession browser = new MockHttpSession();
+        send(post("/api/auth/sign-in"), browser, signIn("plain@example.com"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SIGNED_IN"))
+                .andExpect(jsonPath("$.account.email").value("plain@example.com"));
+        mvc.perform(get("/api/account").session(browser)).andExpect(status().isOk());
+    }
 
     @Test
     void wrongPasswordsAreRefusedAndFiveInARowLockTheAccount() throws Exception {
@@ -132,190 +123,121 @@ class AuthFlowTest {
                 .andExpect(jsonPath("$.detail").value("Email or password is incorrect."));
     }
 
-    // ----- Two-step verification -----
+    @Test
+    void theOptionsSayWhetherGoogleSignInIsSetUp() throws Exception {
+        // The tests run without Google keys.
+        mvc.perform(get("/api/auth/options")).andExpect(jsonPath("$.google").value(false));
+    }
+
+    // ----- Staying signed in -----
 
     @Test
-    void emailTwoStepVerificationAsksForACodeAfterThePassword() throws Exception {
-        String email = "twostep@example.com";
-        MockHttpSession browser = register(email, null);
+    void theStaySignedInCookieSignsYouInAgainWhenTheSessionHasGone() throws Exception {
+        Cookie cookie = stayCookie(send(post("/api/auth/register"), new MockHttpSession(),
+                registration("stay@example.com", null)).andExpect(status().isCreated()).andReturn().getResponse());
+        assertTrue(cookie.isHttpOnly(), "page scripts must not be able to read it");
+        assertEquals(StaySignedIn.LIFETIME.toSeconds(), cookie.getMaxAge());
 
-        // Verify the email address with the code we "emailed".
-        send(post("/api/account/email/send-code"), browser, null).andExpect(status().isOk());
-        send(post("/api/account/email/verify"), browser, code(lastCodeEmailedTo(email)))
-                .andExpect(jsonPath("$.emailVerified").value(true));
-
-        // Turn on two-step verification by email, then sign out.
-        send(put("/api/account/two-factor"), browser, """
-                {"method": "EMAIL"}""")
-                .andExpect(jsonPath("$.twoFactorMethod").value("EMAIL"));
-        mvc.perform(post("/api/auth/sign-out").session(browser).with(csrf()));
-
-        // Sign in again: the right password alone is NOT enough.
-        MockHttpSession newBrowser = new MockHttpSession();
-        send(post("/api/auth/sign-in"), newBrowser, signIn(email))
-                .andExpect(jsonPath("$.status").value("CODE_REQUIRED"))
-                .andExpect(jsonPath("$.sentTo").value("t•••@example.com"))
-                .andExpect(jsonPath("$.developmentMode").value(false)); // the test's fake sender is "real"
-        mvc.perform(get("/api/account").session(newBrowser)).andExpect(status().isUnauthorized());
-
-        String rightCode = lastCodeEmailedTo(email);
-        String wrongCode = rightCode.equals("000000") ? "111111" : "000000";
-        send(post("/api/auth/sign-in/verify"), newBrowser, code(wrongCode))
-                .andExpect(status().isBadRequest());
-
-        send(post("/api/auth/sign-in/verify"), newBrowser, code(rightCode))
-                .andExpect(jsonPath("$.status").value("SIGNED_IN"));
-        mvc.perform(get("/api/account").session(newBrowser)).andExpect(status().isOk());
+        // A brand-new session (as after the server restarts), with only the cookie:
+        MockHttpServletResponse reply = mvc.perform(get("/api/account").cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("stay@example.com"))
+                .andReturn().getResponse();
+        assertNotNull(stayCookie(reply), "using the cookie renews it for another 400 days");
     }
 
     @Test
-    void twoStepByTextNeedsAVerifiedPhone() throws Exception {
-        MockHttpSession browser = register("texter@example.com", null);
+    void signingOutDeletesTheStaySignedInCookie() throws Exception {
+        MockHttpSession browser = new MockHttpSession();
+        send(post("/api/auth/register"), browser, registration("leaving@example.com", null));
 
-        send(put("/api/account/two-factor"), browser, """
-                {"method": "SMS"}""")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").value("Add and verify your phone number first."));
-
-        // Adding a phone number texts it a code straight away.
-        send(put("/api/account/phone"), browser, """
-                {"phone": "214-555-0199"}""")
-                .andExpect(jsonPath("$.sentTo").value("•••• 0199"));
-        send(post("/api/account/phone/verify"), browser, code(lastCodeTextedTo("+12145550199")))
-                .andExpect(jsonPath("$.phoneVerified").value(true));
-
-        send(put("/api/account/two-factor"), browser, """
-                {"method": "SMS"}""")
-                .andExpect(jsonPath("$.twoFactorMethod").value("SMS"));
+        MockHttpServletResponse reply = mvc.perform(post("/api/auth/sign-out").session(browser).with(csrf()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+        assertEquals(0, stayCookie(reply).getMaxAge(), "a max age of 0 tells the browser to delete it");
     }
 
     @Test
-    void textCodesGoThroughTwilioVerifyWhenItIsSetUp() throws Exception {
-        when(twilioVerify.configured()).thenReturn(true);
-        when(twilioVerify.check("+12145550188", "246810")).thenReturn(true);
-        MockHttpSession browser = register("verify@example.com", null);
+    void aChangedOrForgedCookieDoesntSignAnyoneIn() throws Exception {
+        Cookie real = stayCookie(send(post("/api/auth/register"), new MockHttpSession(),
+                registration("target@example.com", null)).andReturn().getResponse());
+        String[] parts = real.getValue().split(":"); // id : expiry : signature
 
-        // Adding a phone asks Twilio to text a code (Twilio makes it, not us).
-        send(put("/api/account/phone"), browser, """
-                {"phone": "214-555-0188"}""")
-                .andExpect(jsonPath("$.sentTo").value("•••• 0188"))
-                .andExpect(jsonPath("$.developmentMode").value(false));
-        verify(twilioVerify).start("+12145550188");
-
-        // Twilio says a wrong code is wrong, and the right one is right.
-        send(post("/api/account/phone/verify"), browser, code("135791"))
-                .andExpect(status().isBadRequest());
-        send(post("/api/account/phone/verify"), browser, code("246810"))
-                .andExpect(jsonPath("$.phoneVerified").value(true));
-
-        send(put("/api/account/two-factor"), browser, """
-                {"method": "SMS"}""")
-                .andExpect(jsonPath("$.twoFactorMethod").value("SMS"));
-    }
-
-    @Test
-    void theOptionsSayWhatThisServerCanDo() throws Exception {
-        // Tests run without Google keys; codes are "sent" by the pretend senders.
-        mvc.perform(get("/api/auth/options"))
-                .andExpect(jsonPath("$.google").value(false))
-                .andExpect(jsonPath("$.emailCodes").value(true))
-                .andExpect(jsonPath("$.textCodes").value(true));
-    }
-
-    // ----- Authenticator app -----
-
-    @Test
-    void anAuthenticatorAppCanBeSetUpAndAsksForItsCodeAfterThePassword() throws Exception {
-        String email = "app@example.com";
-        MockHttpSession browser = register(email, null);
-
-        // Choosing it directly isn't allowed: the app must prove it has the secret first.
-        send(put("/api/account/two-factor"), browser, """
-                {"method": "AUTHENTICATOR"}""")
-                .andExpect(status().isConflict());
-
-        String secret = startAuthenticatorSetup(browser);
-        send(post("/api/account/authenticator/confirm"), browser, code(wrongCode(secret)))
-                .andExpect(status().isBadRequest());
-        long step = Totp.stepAt(Instant.now());
-        send(post("/api/account/authenticator/confirm"), browser, code(Totp.code(secret, step)))
-                .andExpect(jsonPath("$.account.twoFactorMethod").value("AUTHENTICATOR"))
-                .andExpect(jsonPath("$.backupCodes.length()").value(10));
-        mvc.perform(post("/api/auth/sign-out").session(browser).with(csrf()));
-
-        // Signing in: the password, then the app's code. Nothing is sent.
-        MockHttpSession newBrowser = new MockHttpSession();
-        send(post("/api/auth/sign-in"), newBrowser, signIn(email))
-                .andExpect(jsonPath("$.status").value("CODE_REQUIRED"))
-                .andExpect(jsonPath("$.method").value("AUTHENTICATOR"))
-                .andExpect(jsonPath("$.sentTo").doesNotExist());
-        send(post("/api/auth/sign-in/resend"), newBrowser, null).andExpect(status().isConflict());
-
-        // The code already used during setup can't be used again...
-        send(post("/api/auth/sign-in/verify"), newBrowser, code(Totp.code(secret, step)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("That code was just used. Wait for your app to show the next one."));
-        // ...but the next one works.
-        send(post("/api/auth/sign-in/verify"), newBrowser, code(Totp.code(secret, step + 1)))
-                .andExpect(jsonPath("$.status").value("SIGNED_IN"));
-        mvc.perform(get("/api/account").session(newBrowser)).andExpect(status().isOk());
-    }
-
-    @Test
-    void eachBackupCodeWorksOnce() throws Exception {
-        String email = "backup@example.com";
-        MockHttpSession browser = register(email, null);
-        List<String> backupCodes = turnOnAuthenticator(browser);
-        mvc.perform(post("/api/auth/sign-out").session(browser).with(csrf()));
-
-        MockHttpSession first = new MockHttpSession();
-        send(post("/api/auth/sign-in"), first, signIn(email));
-        send(post("/api/auth/sign-in/verify"), first, code(backupCodes.get(0).toLowerCase()))
-                .andExpect(jsonPath("$.status").value("SIGNED_IN"));
-
-        MockHttpSession second = new MockHttpSession();
-        send(post("/api/auth/sign-in"), second, signIn(email));
-        send(post("/api/auth/sign-in/verify"), second, code(backupCodes.get(0)))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void tenWrongCodesLockTheAccountEvenIfThePasswordIsTypedAgain() throws Exception {
-        String email = "guesser@example.com";
-        MockHttpSession browser = register(email, null);
-        String secret = startAuthenticatorSetup(browser);
-        send(post("/api/account/authenticator/confirm"), browser, code(Totp.code(secret, Totp.stepAt(Instant.now()))));
-        mvc.perform(post("/api/auth/sign-out").session(browser).with(csrf()));
-
-        // Five wrong codes, then the right password again (which resets the
-        // PASSWORD count), then five more wrong codes: the account locks.
-        for (int round = 0; round < 2; round++) {
-            MockHttpSession attacker = new MockHttpSession();
-            send(post("/api/auth/sign-in"), attacker, signIn(email))
-                    .andExpect(jsonPath("$.status").value("CODE_REQUIRED"));
-            for (int guess = 0; guess < 5; guess++) {
-                send(post("/api/auth/sign-in/verify"), attacker, code(wrongCode(secret)))
-                        .andExpect(status().isBadRequest());
-            }
+        // Someone edits the account number, or makes up a signature:
+        String otherAccount = (Long.parseLong(parts[0]) + 1) + ":" + parts[1] + ":" + parts[2];
+        String madeUp = parts[0] + ":" + parts[1] + ":" + "not-the-signature";
+        for (String forged : new String[] {otherAccount, madeUp, "rubbish"}) {
+            MockHttpServletResponse reply = mvc.perform(get("/api/account")
+                            .cookie(new Cookie(StaySignedIn.COOKIE, forged)))
+                    .andExpect(status().isUnauthorized())
+                    .andReturn().getResponse();
+            assertEquals(0, stayCookie(reply).getMaxAge(), "a bad cookie is deleted");
         }
-        send(post("/api/auth/sign-in"), new MockHttpSession(), signIn(email))
-                .andExpect(status().isTooManyRequests());
     }
 
     @Test
-    void turningTheAuthenticatorOffForgetsIt() throws Exception {
-        MockHttpSession browser = register("off@example.com", null);
-        turnOnAuthenticator(browser);
+    void changingThePasswordStopsOldCookiesWorking() throws Exception {
+        Cookie cookie = stayCookie(send(post("/api/auth/register"), new MockHttpSession(),
+                registration("newpass@example.com", null)).andReturn().getResponse());
 
-        send(put("/api/account/two-factor"), browser, """
-                {"method": "NONE"}""")
-                .andExpect(jsonPath("$.twoFactorMethod").value("NONE"));
-        // Its secret is gone, so it can't simply be switched back on.
-        send(put("/api/account/two-factor"), browser, """
-                {"method": "AUTHENTICATOR"}""")
+        AppUser user = users.findByEmail("newpass@example.com").orElseThrow();
+        user.setPasswordHash("{bcrypt}a-different-hash");
+        users.save(user);
+
+        mvc.perform(get("/api/account").cookie(cookie)).andExpect(status().isUnauthorized());
+    }
+
+    // ----- Google -----
+
+    @Test
+    void theFirstGoogleSignInCreatesAnAccountAndTheNextOnesFindIt() {
+        AuthService.GoogleSignIn first = authService.signInWithGoogle("google-new", "New@Example.com", true, "New Person");
+        assertTrue(first.newAccount());
+        assertEquals("new@example.com", first.user().getEmail());
+        assertEquals("New Person", first.user().getDisplayName());
+        assertFalse(first.user().hasPassword());
+
+        AuthService.GoogleSignIn again = authService.signInWithGoogle("google-new", "new@example.com", true, null);
+        assertFalse(again.newAccount());
+        assertEquals(first.user().getId(), again.user().getId());
+    }
+
+    @Test
+    void googleSignInWithAnEmailThatHasAnAccountUsesThatAccount() throws Exception {
+        register("both@example.com", null);
+        AppUser registered = users.findByEmail("both@example.com").orElseThrow();
+
+        AuthService.GoogleSignIn google = authService.signInWithGoogle("google-both", "both@example.com", true, "Both");
+
+        assertFalse(google.newAccount(), "one email, one account");
+        assertEquals(registered.getId(), google.user().getId());
+        assertEquals(1, users.findAll().stream().filter(u -> u.getEmail().equals("both@example.com")).count());
+        // Typed emails aren't proven, so Google's sign-in replaces the password (see the next test).
+        assertTrue(google.passwordRemoved());
+        // ...and you can't then make a second account with that email either.
+        send(post("/api/auth/register"), new MockHttpSession(), registration("both@example.com", null))
                 .andExpect(status().isConflict());
-        send(post("/api/account/authenticator/backup-codes"), browser, null)
-                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void googleSignInTakesOverAnAccountWhoseEmailWasNeverProven() {
+        // Someone creates an account with an email they don't own...
+        AppUser planted = authService.register("victim@example.com", STRONG_PASSWORD, "Not Me", "214-555-0100", null);
+
+        // ...then the real owner signs in with Google, which has verified the email.
+        AppUser owner = authService.signInWithGoogle("google-123", "Victim@Example.com", true, "Real Owner").user();
+
+        assertEquals(planted.getId(), owner.getId());
+        assertFalse(owner.hasPassword(), "the stranger's password must be removed");
+        assertNull(owner.getPhoneNumber(), "and their phone number");
+        assertTrue(owner.isEmailVerified());
+        assertEquals("google-123", owner.getGoogleId());
+    }
+
+    @Test
+    void anUnverifiedEmailFromGoogleIsRefused() {
+        assertThrows(AuthException.class,
+                () -> authService.signInWithGoogle("google-1", "x@example.com", false, null));
     }
 
     // ----- Security basics -----
@@ -331,32 +253,6 @@ class AuthFlowTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(registration("csrf@example.com", null)))
                 .andExpect(status().isForbidden());
-    }
-
-    // ----- Google / Apple -----
-
-    @Test
-    void googleSignInTakesOverAnAccountWhoseEmailWasNeverVerified() {
-        // Someone registers with an email they don't own and never verifies it...
-        AppUser planted = authService.register("victim@example.com", STRONG_PASSWORD, "Not Me", null, null);
-
-        // ...then the real owner signs in with Google, which has verified the email.
-        AppUser owner = authService.signInWithGoogle("google-123", "Victim@Example.com", true, "Real Owner");
-
-        assertEquals(planted.getId(), owner.getId());
-        assertFalse(owner.hasPassword(), "the unverified password must be removed");
-        assertTrue(owner.isEmailVerified());
-        assertEquals("google-123", owner.getGoogleId());
-
-        // Next time, Google's ID alone finds the same account.
-        assertEquals(owner.getId(),
-                authService.signInWithGoogle("google-123", "victim@example.com", true, null).getId());
-    }
-
-    @Test
-    void anUnverifiedEmailFromGoogleIsRefused() {
-        assertThrows(AuthException.class,
-                () -> authService.signInWithGoogle("google-1", "x@example.com", false, null));
     }
 
     // ----- Helpers -----
@@ -379,6 +275,13 @@ class AuthFlowTest {
         return browser;
     }
 
+    // The "stay signed in" cookie a reply set (or deleted).
+    private static Cookie stayCookie(MockHttpServletResponse response) {
+        Cookie cookie = response.getCookie(StaySignedIn.COOKIE);
+        assertNotNull(cookie, "the reply should set the stay-signed-in cookie");
+        return cookie;
+    }
+
     private static String registration(String email, String phone) {
         return """
                 {"email": "%s", "password": "%s", "displayName": "Test Person", "phone": %s}"""
@@ -388,59 +291,5 @@ class AuthFlowTest {
     private static String signIn(String email) {
         return """
                 {"email": "%s", "password": "%s"}""".formatted(email, STRONG_PASSWORD);
-    }
-
-    private static String code(String code) {
-        return """
-                {"code": "%s"}""".formatted(code);
-    }
-
-    // An ArgumentCaptor collects what the mock was given; we take the newest message.
-    private String lastCodeEmailedTo(String email) {
-        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(emailSender, atLeastOnce()).send(eq(email), anyString(), body.capture());
-        return sixDigits(body.getAllValues());
-    }
-
-    private String lastCodeTextedTo(String phone) {
-        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(smsSender, atLeastOnce()).send(eq(phone), body.capture());
-        return sixDigits(body.getAllValues());
-    }
-
-    // Starts setting up an authenticator app and returns its secret (from the QR code).
-    private String startAuthenticatorSetup(MockHttpSession browser) throws Exception {
-        String json = send(post("/api/account/authenticator/setup"), browser, null)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.uri").value(startsWith("otpauth://totp/")))
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(json, "$.secret");
-    }
-
-    // Sets up an authenticator app and returns the backup codes.
-    private List<String> turnOnAuthenticator(MockHttpSession browser) throws Exception {
-        String secret = startAuthenticatorSetup(browser);
-        String json = send(post("/api/account/authenticator/confirm"), browser,
-                code(Totp.code(secret, Totp.stepAt(Instant.now()))))
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(json, "$.backupCodes");
-    }
-
-    // A 6-digit code that isn't right just now (nor half a minute either side).
-    private static String wrongCode(String secret) {
-        long step = Totp.stepAt(Instant.now());
-        for (int n = 0; ; n++) {
-            String candidate = "%06d".formatted(n);
-            if (Totp.verify(secret, candidate, Instant.now()).isEmpty()
-                    && !candidate.equals(Totp.code(secret, step + 2))) {
-                return candidate;
-            }
-        }
-    }
-
-    private static String sixDigits(List<String> messages) {
-        Matcher matcher = Pattern.compile("\\d{6}").matcher(messages.get(messages.size() - 1));
-        assertTrue(matcher.find(), "the message should contain a 6-digit code");
-        return matcher.group();
     }
 }

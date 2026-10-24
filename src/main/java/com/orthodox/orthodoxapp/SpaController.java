@@ -21,13 +21,24 @@ import org.springframework.web.bind.annotation.GetMapping;
  * "forward:" hands the request to /index.html inside the server; the address
  * in the browser stays /bible/PSA/50. @Controller (not @RestController)
  * means the returned text names a page, rather than being the reply itself.
- * Keep this list in step with the routes in frontend/src/App.tsx.
+ * Keep this list in step with the routes in frontend/src/components/TabsHost.tsx.
  */
 @Controller
 public class SpaController {
 
-    @GetMapping({"/bible", "/bible/**", "/prayers", "/prayers/**", "/church", "/church/**", "/profile", "/sign-in"})
+    @GetMapping({"/bible", "/bible/**", "/prayers", "/prayers/**", "/church", "/church/**",
+            "/profile", "/profile/**", "/sign-in"})
     public String app() {
         return "forward:/index.html";
+    }
+
+    /**
+     * The privacy policy: a plain page of its own (frontend/public/privacy.html),
+     * readable without the app, at the short address Google's sign-in screen
+     * links to.
+     */
+    @GetMapping("/privacy")
+    public String privacy() {
+        return "forward:/privacy.html";
     }
 }

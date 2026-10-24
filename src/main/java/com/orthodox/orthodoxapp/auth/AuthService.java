@@ -3,7 +3,6 @@ package com.orthodox.orthodoxapp.auth;
 import com.orthodox.orthodoxapp.account.AppStyle;
 import com.orthodox.orthodoxapp.account.AppUser;
 import com.orthodox.orthodoxapp.account.AppUserRepository;
-import com.orthodox.orthodoxapp.account.TwoFactorMethod;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -29,9 +28,18 @@ public class AuthService {
     static final int MAX_FAILED_SIGN_INS = 5;
     static final Duration LOCK_TIME = Duration.ofMinutes(15);
 
-    // Something@something.something, with no spaces. The real test of an
-    // email address is sending it a code, which we do when verifying it.
+    // Something@something.something, with no spaces. (We don't check that
+    // the address really works: the app never emails anyone.)
     private static final Pattern EMAIL = Pattern.compile("[^@\\s]+@[^@\\s]+\\.[^@\\s]+");
+
+    /**
+     * What happened when someone signed in with Google:
+     * newAccount      = this was their first time, so we made their account
+     * passwordRemoved = their email already had an account with a password,
+     *                   which Google's sign-in replaced (see signInWithGoogle)
+     */
+    public record GoogleSignIn(AppUser user, boolean newAccount, boolean passwordRemoved) {
+    }
 
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
@@ -72,6 +80,10 @@ public class AuthService {
 
         String cleanPhone = (phone == null || phone.isBlank()) ? null : PhoneNumbers.normalize(phone);
 
+        // One account per email address. (Emails are saved in lowercase, so
+        // "Anna@Example.com" counts as the same address as "anna@example.com".)
+        // The database's email column is also "unique", so even two sign-ups
+        // arriving at the same instant can't both get through.
         if (users.existsByEmail(cleanEmail)) {
             throw new AuthException(HttpStatus.CONFLICT,
                     "An account with this email already exists. Try signing in instead.");
@@ -121,17 +133,18 @@ public class AuthService {
      * Finds or creates the account for someone who signed in with Google.
      *
      *   1. Already used this Google account here? Use the same AppUser.
-     *   2. Otherwise, an account with the same (verified) email? Link to it.
+     *   2. Otherwise, an account with the same email? Use that one, so one
+     *      email never ends up with two accounts.
      *   3. Otherwise, create a new account.
      *
      * @param subject       Google's permanent ID for this person
      * @param emailVerified whether Google has confirmed the email
      */
     @Transactional
-    public AppUser signInWithGoogle(String subject, String email, boolean emailVerified, String name) {
+    public GoogleSignIn signInWithGoogle(String subject, String email, boolean emailVerified, String name) {
         Optional<AppUser> linked = users.findByGoogleId(subject);
         if (linked.isPresent()) {
-            return linked.get();
+            return new GoogleSignIn(linked.get(), false, false);
         }
 
         if (email == null || !emailVerified) {
@@ -140,25 +153,24 @@ public class AuthService {
         }
         String cleanEmail = normalizeEmail(email);
 
-        AppUser user = users.findByEmail(cleanEmail)
-                .orElseGet(() -> new AppUser(cleanEmail, nameOrDefault(name, cleanEmail)));
+        Optional<AppUser> existing = users.findByEmail(cleanEmail);
+        AppUser user = existing.orElseGet(() -> new AppUser(cleanEmail, nameOrDefault(name, cleanEmail)));
 
-        if (user.getId() != null && !user.isEmailVerified()) {
-            // An existing account whose email was never proven. Anyone can sign
-            // up with someone else's email and wait for the real owner to arrive
-            // (a "pre-hijacking" attack). Google has now proven who owns this
-            // email, so we remove the unproven password and settings.
+        boolean passwordRemoved = false;
+        if (existing.isPresent() && !user.isEmailVerified()) {
+            // An existing account whose email was never proven. Anyone can
+            // create an account with someone else's email and wait for the
+            // real owner to arrive (a "pre-hijacking" attack). Google has now
+            // proven who owns this email, so the unproven password and phone
+            // number go: from now on, only Google opens this account.
+            passwordRemoved = user.hasPassword();
             user.setPasswordHash(null);
             user.setPhoneNumber(null);
-            user.setPhoneVerified(false);
-            user.setTwoFactorMethod(TwoFactorMethod.NONE);
-            user.setTotpSecret(null);
-            user.setTotpLastStep(null);
         }
 
         user.setEmailVerified(true);
         user.setGoogleId(subject);
-        return users.save(user);
+        return new GoogleSignIn(users.save(user), existing.isEmpty(), passwordRemoved);
     }
 
     // Emails are compared in lowercase without spaces: " Kenneth@Gmail.com" -> "kenneth@gmail.com"

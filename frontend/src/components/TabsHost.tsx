@@ -73,6 +73,8 @@ function tabRoutes(tab: TabId): ReactNode {
           {/* Both show your profile when signed in, the sign-in form when not (ProfileTab). */}
           <Route path="/profile" element={<ProfileTab />} />
           <Route path="/sign-in" element={<ProfileTab />} />
+          <Route path="/profile/members" element={<ProfileTab page="members" />} />
+          <Route path="/profile/*" element={<Navigate to="/profile" replace />} />
         </>
       )
   }
@@ -108,9 +110,13 @@ export function TabsHost() {
 
   const pathFor = useCallback(
     (tab: TabId) => {
-      // The Profile tab has one page: /profile when signed in, /sign-in when not.
-      if (tab === 'profile') return account ? '/profile' : '/sign-in'
       const last = locations[tab] ?? (tab === active ? location : undefined)
+      // The Profile tab: /sign-in when you're not signed in. When you are,
+      // its last page (the Members page, say), but never /sign-in.
+      if (tab === 'profile') {
+        if (!account) return '/sign-in'
+        return last && last.pathname.startsWith('/profile/') ? last.pathname : '/profile'
+      }
       if (last) return last.pathname + last.search
       return TABS.find((t) => t.id === tab)!.root
     },

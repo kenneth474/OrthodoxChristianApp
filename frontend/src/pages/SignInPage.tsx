@@ -1,8 +1,8 @@
 /*
-  SignInPage ("/sign-in"): sign in, create an account, or enter the 6-digit
-  code when two-step verification is on. Talks to AuthController (/api/auth).
+  SignInPage ("/sign-in"): sign in, or create an account, with an email and
+  password or with Google. Talks to AuthController (/api/auth).
 
-  Three panels, one shown at a time: "sign-in", "register" and "code".
+  Two panels, one shown at a time: "sign-in" and "register".
 */
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
@@ -13,9 +13,9 @@ import { Masthead } from '../components/ornaments'
 import { StylePicker } from '../components/StylePicker'
 import { currentStyle, previewStyle } from '../lib/appearance'
 import { useApiData } from '../lib/data'
-import type { AppStyle, SignInOptions, SignInResponse, TwoFactorMethod } from '../types'
+import type { AppStyle, SignInOptions, SignInResponse } from '../types'
 
-type Panel = 'sign-in' | 'register' | 'code'
+type Panel = 'sign-in' | 'register'
 
 // The same password rules as PasswordPolicy.java, for the live checklist.
 // \p{Lu} = any uppercase letter, \p{Ll} = lowercase, \p{Nd} = a digit (the
@@ -40,7 +40,7 @@ export function SignInPage() {
       : null,
   )
   const [busy, setBusy] = useState(false) // true while waiting for the server
-  // Which sign-in buttons are set up (keys in secrets.properties)?
+  // Is "Continue with Google" set up (keys in secrets.properties, or online)?
   const options = useApiData<SignInOptions>('/api/auth/options').data
 
   // The form fields. Each input shows one of these, and typing updates it:
@@ -50,10 +50,6 @@ export function SignInPage() {
   const [displayName, setDisplayName] = useState('')
   const [confirm, setConfirm] = useState('')
   const [phone, setPhone] = useState('')
-  const [code, setCode] = useState('')
-  // Where the second-step code is (after a right password, with two-step verification on).
-  const [challenge, setChallenge] = useState<{ method: TwoFactorMethod; sentTo: string; developmentMode: boolean } | null>(null)
-  const [useBackupCode, setUseBackupCode] = useState(false)
   // The look chosen for the new account. Picking one shows it straight away.
   const [style, setStyle] = useState<AppStyle>(currentStyle)
   const chooseStyle = (next: AppStyle) => {
@@ -93,15 +89,7 @@ export function SignInPage() {
   }
 
   const signIn = submit(async () => {
-    const result = await api<SignInResponse>('POST', '/api/auth/sign-in', { email, password })
-    if (result.status === 'CODE_REQUIRED') {
-      setChallenge({ method: result.method ?? 'EMAIL', sentTo: result.sentTo ?? '', developmentMode: result.developmentMode })
-      setUseBackupCode(false)
-      setCode('')
-      show('code')
-    } else {
-      finish(result)
-    }
+    finish(await api<SignInResponse>('POST', '/api/auth/sign-in', { email, password }))
   })
 
   const register = submit(async () => {
@@ -110,44 +98,25 @@ export function SignInPage() {
     finish(result, '/profile?welcome=1')
   })
 
-  const verify = submit(async () => {
-    finish(await api<SignInResponse>('POST', '/api/auth/sign-in/verify', { code }))
-  })
-
-  const resend = async () => {
-    try {
-      const result = await api<SignInResponse>('POST', '/api/auth/sign-in/resend')
-      setMessage({ kind: 'info', text: `We sent a new code to ${result.sentTo}.`, developmentMode: result.developmentMode })
-    } catch (error) {
-      setMessage({ kind: 'error', text: errorMessage(error) })
-    }
-  }
-
   return (
     <div className="screen">
       <Masthead eyebrow="Welcome to" title="Orthodox Daily" subtitle="Sign in to keep your profile, settings and style on every device." />
       <main className="page narrow">
 
-      {panel !== 'code' && (
-        <div className="tabs">
-          <button type="button" className={panel === 'sign-in' ? 'tab active' : 'tab'} onClick={() => show('sign-in')}>
-            Sign in
-          </button>
-          <button type="button" className={panel === 'register' ? 'tab active' : 'tab'} onClick={() => show('register')}>
-            Create account
-          </button>
-        </div>
-      )}
+      <div className="tabs">
+        <button type="button" className={panel === 'sign-in' ? 'tab active' : 'tab'} onClick={() => show('sign-in')}>
+          Sign in
+        </button>
+        <button type="button" className={panel === 'register' ? 'tab active' : 'tab'} onClick={() => show('register')}>
+          Create account
+        </button>
+      </div>
 
       <Message message={message} />
 
-      {panel !== 'code' && (
-        <div>
-          {/* The first Google sign-in also creates your account. */}
-          <GoogleButton enabled={options?.google ?? false} onUnavailable={setMessage} />
-          <p className="divider">or use your email</p>
-        </div>
-      )}
+      {/* The first Google sign-in also creates your account. */}
+      <GoogleButton enabled={options?.google ?? false} onUnavailable={setMessage} />
+      <p className="divider">or use your email</p>
 
       {panel === 'sign-in' && (
         <form className="card" onSubmit={signIn}>
@@ -213,7 +182,6 @@ export function SignInPage() {
             Phone number <span className="optional">(optional)</span>
             <input type="tel" autoComplete="tel" placeholder="(214) 555-0123" value={phone} onChange={(e) => setPhone(e.target.value)} />
           </label>
-          <p className="hint">With a phone number you can choose to get sign-in codes by text message.</p>
           <fieldset className="choices">
             <legend>Choose a style</legend>
             <p className="hint">How the app looks. You can change it any time in Profile.</p>
@@ -225,64 +193,10 @@ export function SignInPage() {
         </form>
       )}
 
-      {panel === 'code' && challenge && (
-        <form className="card" onSubmit={verify}>
-          {challenge.method === 'AUTHENTICATOR' ? (
-            <p>
-              {useBackupCode
-                ? 'Type one of the backup codes you saved when you set up your authenticator app. Each works once.'
-                : 'Open your authenticator app and type the 6-digit code it shows for Orthodox Daily.'}
-            </p>
-          ) : (
-            <p>
-              We {challenge.method === 'SMS' ? 'texted' : 'emailed'} a 6-digit code to <strong>{challenge.sentTo}</strong>.
-              It expires in 10 minutes.
-            </p>
-          )}
-          {challenge.developmentMode && (
-            <p className="hint">
-              Development mode: codes aren't really sent yet. Find this one in the VS Code terminal where the backend is
-              running.
-            </p>
-          )}
-          <label>
-            {useBackupCode ? 'Backup code' : 'Code'}
-            <input
-              inputMode={useBackupCode ? 'text' : 'numeric'}
-              autoComplete="one-time-code"
-              autoCapitalize="characters"
-              maxLength={useBackupCode ? 11 : 6}
-              required
-              autoFocus
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-          </label>
-          <button type="submit" className="primary" disabled={busy}>
-            Verify and sign in
-          </button>
-          {challenge.method === 'AUTHENTICATOR' ? (
-            <button
-              type="button"
-              className="link"
-              onClick={() => {
-                setUseBackupCode(!useBackupCode)
-                setCode('')
-              }}
-            >
-              {useBackupCode ? 'Use the code from my app' : 'Lost your phone? Use a backup code'}
-            </button>
-          ) : (
-            <button type="button" className="link" onClick={resend}>
-              Send a new code
-            </button>
-          )}{' '}
-          ·{' '}
-          <button type="button" className="link" onClick={() => show('sign-in')}>
-            Start over
-          </button>
-        </form>
-      )}
+      {/* An ordinary link: the privacy page isn't part of the app (public/privacy.html). */}
+      <p className="footer">
+        <a href="/privacy">Privacy policy</a>
+      </p>
       </main>
     </div>
   )
@@ -310,11 +224,11 @@ function GoogleButton({ enabled, onUnavailable }: { enabled: boolean; onUnavaila
       onClick={() =>
         onUnavailable({
           kind: 'info',
-          text: `Google sign-in isn't switched on yet: the app needs its Google keys. See "Setting up sign-in" in the README.`,
+          text: `Google sign-in isn't switched on here: the app needs its Google keys. See "Sign in with Google" in the README.`,
         })
       }
     >
-      Continue with Google <span className="soon">(not set up yet)</span>
+      Continue with Google
     </button>
   )
 }
