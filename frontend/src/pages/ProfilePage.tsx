@@ -2,13 +2,14 @@
   ProfilePage (the Profile tab, "/profile"): your account.
 
   Profile (photo, name, patron saint and their feast day, home parish), how
-  the app looks, your phone number, how you sign in, and signing out.
+  the app looks, your phone number, notifications, how you sign in, and
+  signing out.
   Administrators also get a link to the Members page.
   Talks to AccountController (/api/account/...). Every change sends back the
   updated account, which update() shares with the whole app (so the photo in
   the tab bar changes at once, for example).
 */
-import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useAccount } from '../account-context'
 import { api, ApiError, errorMessage } from '../api'
@@ -17,7 +18,8 @@ import { Masthead } from '../components/ornaments'
 import { StylePicker } from '../components/StylePicker'
 import { forgetAppearance } from '../lib/appearance'
 import { phoneText } from '../lib/phone'
-import type { Account, AppStyle, TextSize, Theme } from '../types'
+import { fromBase64Url, pushSupport, timeZone, unsubscribeThisDevice } from '../lib/push'
+import type { Account, AppStyle, NotificationStatus, TextSize, Theme } from '../types'
 
 // Why you're here, from the address: just created an account with your
 // email (?welcome=1) or with Google (?welcome=google), or Google has just
@@ -67,9 +69,10 @@ export function ProfilePage() {
   }
 
   // Signing out goes Home; the Profile tab then shows the sign-in page
-  // (see ProfileTab).
+  // (see ProfileTab). This device stops getting your notifications.
   const signOut = () =>
     run(async () => {
+      await unsubscribeThisDevice().catch(() => {})
       await api('POST', '/api/auth/sign-out')
       forgetAppearance() // the next person on this device gets the defaults
       navigate('/', { replace: true })
@@ -100,6 +103,7 @@ export function ProfilePage() {
       <ProfileCard key={account.email} account={account} run={run} />
       <AppearanceCard account={account} run={run} />
       <PhoneCard key={`phone-${account.email}-${account.phoneNumber}`} account={account} run={run} />
+      <NotificationsCard key={`notify-${account.email}`} account={account} run={run} />
 
       <section className="card">
         <h2>Ways you sign in</h2>
@@ -370,6 +374,175 @@ function PhoneCard({ account, run }: CardProps) {
         <button type="submit">Save</button>
       </form>
       <p className="hint">To remove your number, clear the box and save.</p>
+    </Card>
+  )
+}
+
+// ----- Notifications (lib/push.ts; NotificationService.java on the server) -----
+
+const BLOCKED_HELP =
+  'Notifications are blocked for Orthodox Daily on this device. On iPhone: Settings, then Notifications, then ' +
+  'Orthodox Daily, and turn on Allow Notifications. In a browser: the icon left of the address, then Notifications.'
+
+// "12-06" -> "December 6"
+function feastDayText(nameDay: string): string {
+  return `${MONTHS[Number(nameDay.slice(0, 2)) - 1]} ${Number(nameDay.slice(3))}`
+}
+
+function NotificationsCard({ account, run }: CardProps) {
+  const support = pushSupport()
+  // This device: still finding out, or notifications on, off, or blocked.
+  const [device, setDevice] = useState<'checking' | 'on' | 'off' | 'blocked'>('checking')
+  const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
+  const [publicKey, setPublicKey] = useState<string | null>(null)
+  const [time, setTime] = useState(account.notifyTime)
+
+  // Are notifications already on here? If so, remind the server of this
+  // device, in case it forgot it (a new database, say). The server's key and
+  // the service worker are fetched now, because turning on must start
+  // straight from the tap (Safari's rule), with nothing to wait for.
+  useEffect(() => {
+    if (support !== 'ok') return
+    let cancelled = false
+    api<NotificationStatus>('GET', '/api/notifications')
+      .then((status) => !cancelled && setPublicKey(status.publicKey))
+      .catch(() => {})
+    void navigator.serviceWorker.ready.then(async (ready) => {
+      const subscription = await ready.pushManager.getSubscription()
+      if (cancelled) return
+      setRegistration(ready)
+      if (subscription) {
+        setDevice('on')
+        void api('POST', '/api/notifications/devices', subscription.toJSON()).catch(() => {})
+      } else {
+        setDevice(Notification.permission === 'denied' ? 'blocked' : 'off')
+      }
+    })
+    // If the service worker never gets ready, still offer the button.
+    const timer = window.setTimeout(() => setDevice((now) => (now === 'checking' ? 'off' : now)), 5000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [support])
+
+  // The settings, with some changed. The time zone comes from this device.
+  const settings = (changes: { daily?: boolean; nameDay?: boolean; time?: string }) => ({
+    daily: account.notifyDaily,
+    nameDay: account.notifyNameDay,
+    time: account.notifyTime,
+    timeZone: timeZone(),
+    ...changes,
+  })
+  const save = (changes: { daily?: boolean; nameDay?: boolean; time?: string }, success: string) =>
+    run(() => api<Account>('PUT', '/api/notifications/settings', settings(changes)), success)
+
+  const turnOn = () =>
+    run(async () => {
+      if (!registration || !publicKey) throw new Error('Notifications are still getting ready. Please try again in a moment.')
+      let subscription: PushSubscription
+      try {
+        // The browser asks the person first ("Allow notifications?").
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: fromBase64Url(publicKey),
+        })
+      } catch {
+        if (Notification.permission === 'denied') {
+          setDevice('blocked')
+          throw new Error(BLOCKED_HELP)
+        }
+        throw new Error("Notifications couldn't be turned on. Please try again.")
+      }
+      await api('POST', '/api/notifications/devices', subscription.toJSON())
+      setDevice('on')
+      return api<Account>('PUT', '/api/notifications/settings', settings({})) // saves the time zone
+    }, 'Notifications are on for this device.')
+
+  const turnOff = () =>
+    run(async () => {
+      await unsubscribeThisDevice()
+      setDevice('off')
+    }, 'Notifications are off for this device.')
+
+  const test = () =>
+    run(async () => {
+      const result = await api<{ sent: number }>('POST', '/api/notifications/test')
+      if (result.sent === 0) throw new Error("The test couldn't be sent. Try turning notifications off and on again.")
+    }, 'Test notification sent. It should arrive in a few seconds.')
+
+  const nameDayReady = !!account.patronSaint && !!account.nameDay
+
+  return (
+    <Card title="Notifications">
+      {support === 'ios-browser' && (
+        <p className="hint">
+          To get notifications on iPhone, add Orthodox Daily to your Home Screen (tap Share, then Add to Home Screen)
+          and open it from there.
+        </p>
+      )}
+      {support === 'unsupported' && <p className="hint">This browser can't show notifications from Orthodox Daily.</p>}
+      {support === 'ok' && device === 'on' && (
+        <div className="notify-device">
+          <p>
+            <strong>On</strong> for this device.
+          </p>
+          <div className="button-row">
+            <button type="button" onClick={test}>
+              Send a test notification
+            </button>
+            <button type="button" className="link" onClick={turnOff}>
+              Turn off
+            </button>
+          </div>
+        </div>
+      )}
+      {support === 'ok' && (device === 'off' || device === 'checking') && (
+        <div className="notify-device">
+          <button type="button" className="primary-inline" disabled={device === 'checking'} onClick={turnOn}>
+            Turn on notifications
+          </button>
+        </div>
+      )}
+      {support === 'ok' && device === 'blocked' && <p className="hint">{BLOCKED_HELP}</p>}
+
+      <fieldset className="choices">
+        <legend>What you'll get</legend>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={account.notifyDaily}
+            onChange={(e) => save({ daily: e.target.checked }, e.target.checked ? 'Daily notification on.' : 'Daily notification off.')}
+          />
+          <span>Every day: the feast or saint, the fast and the readings</span>
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={account.notifyNameDay}
+            onChange={(e) =>
+              save({ nameDay: e.target.checked }, e.target.checked ? 'Name day greeting on.' : 'Name day greeting off.')
+            }
+          />
+          <span>
+            A greeting on your name day{nameDayReady && account.nameDay ? ` (${feastDayText(account.nameDay)})` : ''}
+          </span>
+        </label>
+        {!nameDayReady && account.notifyNameDay && (
+          <p className="hint">Add your patron saint and their feast day under Profile for this one.</p>
+        )}
+      </fieldset>
+      <form
+        className="inline notify-time"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void save({ time }, 'Notification time saved.')
+        }}
+      >
+        <label htmlFor="notify-time">Time</label>
+        <input id="notify-time" type="time" step={300} required value={time} onChange={(e) => setTime(e.target.value)} />
+        {time !== account.notifyTime && <button type="submit">Save</button>}
+      </form>
     </Card>
   )
 }

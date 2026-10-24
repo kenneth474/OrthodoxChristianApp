@@ -30,7 +30,7 @@ One codebase is planned to run on the web, Windows, macOS, Linux, Android and iO
 | **Daily liturgical calendar** | Feast or saint, week title, tone and commemorations for any date | ✅ Working |
 | **Scripture readings** | The day's Epistle and Gospel with full verse text, matching antiochian.org | ✅ Working |
 | **Lives of the saints** | The story of each saint or feast for the day | ✅ Working |
-| **Listen** | Readings and saints' lives read aloud with the device's own voice (no online AI voices); pause, speed, and a choice of three voices (David, Mark and Zira on Windows) | ✅ Working |
+| **Listen** | Readings and saints' lives read aloud with the device's own voice (no online AI voices); pause, speed, and a choice of three American voices (David, Mark and Zira on Windows; on iPhone Samantha and the best two others) | ✅ Working |
 | **Fasting rule engine** | Maps each day to a clear `FastingRule` (strict, wine only, wine & oil, fish, meat fast, fast-free) | ✅ Working |
 | **Find a parish near me** | Search churches by your location, city or ZIP, with distance and directions | 🔜 Next |
 | **Accounts** | Sign up and sign in with email and password; an email is always needed, a phone number is optional; one account per email | ✅ Working |
@@ -53,7 +53,7 @@ One codebase is planned to run on the web, Windows, macOS, Linux, Android and iO
 | **Church tab** | The Archdiocese: hierarchs, the eight dioceses (with their bishops and states), 20 ministries, and about the Archdiocese, with links to antiochian.org | ✅ Working (parishes come with the parish finder) |
 | **Pray today for…** | A different diocese, hierarch or ministry to pray for each day, on Home and in the Church tab | ✅ Working |
 | **Calendar caching** | Each day's calendar is kept in the server's memory until midnight (Central), so it loads instantly and spares the free Orthocal service; an older copy is used if Orthocal is down | ✅ Working |
-| **Morning notifications** | A 6:00 AM summary of major feasts and parish events | 🔜 Planned |
+| **Notifications** | Turned on per device in Profile: every day at the time you choose, the feast or saint, the fast and the readings; on your name day, a cheerful greeting. On iPhone they work in the app added to the Home Screen (iOS 16.4 or later) | ✅ Working |
 | **Install on any device** | Installable web app (PWA), plus Android and iOS store apps | 🔜 Planned |
 
 ---
@@ -73,6 +73,7 @@ One codebase is planned to run on the web, Windows, macOS, Linux, Android and iO
 | **Hosting** | [Render](https://render.com) (free plan to start), set up by `render.yaml` | Builds and deploys from GitHub after the checks pass; free HTTPS address |
 | **Security** | Spring Security: sessions, a signed "stay signed in" cookie (HMAC-SHA256), CSRF protection, BCrypt password hashing | Sign-in, protected account pages |
 | **Google sign-in** | OAuth 2.0 / OpenID Connect (Spring Security OAuth2 Client) | Sign in without a new password |
+| **Notifications** | Web Push: the Push API and a service worker in the browser; on the server, message encryption (RFC 8291) and VAPID signing (RFC 8292) written with Java's built-in cryptography, and a `@Scheduled` job every minute | Free notifications to iPhones, Android and computers, with no third-party service |
 | **Maps & location** *(planned)* | Browser Geolocation API + OpenStreetMap | "Near me" parish search and maps |
 | **Cache** | `CalendarCache`: in the server's memory | Each day's calendar data, kept until midnight Central time (one server doesn't need Redis) |
 | **Fonts** | EB Garamond, Cormorant Garamond and Cinzel (SIL Open Font License), packed into the app with Fontsource | Book-like reading text and carved-inscription capitals, with no requests to Google |
@@ -168,6 +169,31 @@ CalendarController  ──▶  CalendarService  ──▶  OrthocalClient  ─�
 - **Two-step verification** was built and then taken out on 2026-10-24, until
   after launch; it's in the Git history for when it comes back.
 
+### How notifications work
+
+```
+ Profile: "Turn on notifications"
+   └─▶ the browser asks permission, then its push service (Apple, Google, Mozilla...)
+       gives an address + keys for this device ─▶ saved on our server (PushSubscription)
+
+ Every minute, NotificationScheduler ─▶ NotificationService: whose chosen time is it?
+   └─▶ PushSender: message ─JSON─▶ encrypted for that device (WebPushCrypto)
+       ─▶ POST to the device's address, signed with our VAPID key (VapidKeys)
+       ─▶ the phone's service worker (frontend/public/sw.js) shows it
+```
+
+- **Two kinds:** the daily one (feast or saint, fast, readings), if chosen;
+  and the name-day greeting, on unless turned off, when the patron saint and
+  their feast day are filled in. Both come at the chosen time, in the
+  person's own time zone, once a day.
+- **Turning off:** per device in Profile (and on sign-out). A device whose
+  notifications were turned off in its Settings answers "gone", and is forgotten.
+- **Asleep?** The free server sleeps after 15 quiet minutes and can't send
+  then, so `.github/workflows/keep-awake.yml` visits it every 10 minutes.
+  Anything that came due while it waited still goes out, up to 3 hours late.
+- **Encryption** is tested against the worked example in RFC 8291
+  (`WebPushCryptoTest`); `PushSenderTest` plays a push service and a phone.
+
 ---
 
 ## Project Structure
@@ -190,9 +216,11 @@ OrthodoxChristianApp/
 │   ├── public/data/prayers.json     # The prayers themselves (edit this to add or fix a prayer)
 │   ├── public/data/church.json      # The Archdiocese: hierarchs, dioceses, ministries (edit when they change)
 │   ├── public/privacy.html          # The privacy policy (orthodox-daily.onrender.com/privacy)
+│   ├── public/sw.js                 # The service worker: shows notifications, even with the app closed
 │   └── public/icons/                # The app icon (gold Orthodox cross)
 ├── .github/
 │   ├── workflows/ci.yml             # GitHub Actions: test and build everything on every push, then try the container
+│   ├── workflows/keep-awake.yml     # Visits the online app every 10 minutes, so it's awake to send notifications
 │   ├── scripts/smoke-test.sh        # Quick checks of a running container (used by ci.yml)
 │   ├── workflows/backlog.yml        # GitHub Actions: turns backlog.json into Issues
 │   ├── backlog.json                 # The app's goals, written as user stories
@@ -201,6 +229,7 @@ OrthodoxChristianApp/
 │   ├── FastingRuleTest.java         # Tests for the fasting rules
 │   ├── DatabaseFixesTest.java       # An old database layout gets repaired at startup
 │   ├── account/, admin/             # Tests for the profile, appearance, photos and the Members page
+│   ├── notify/                      # Tests for notifications: encryption (RFC example), sending, timing, settings
 │   └── auth/                        # Tests for passwords, phones, Google, staying signed in, the whole sign-in flow
 └── src/main/
     ├── java/com/orthodox/orthodoxapp/
@@ -224,6 +253,8 @@ OrthodoxChristianApp/
     │   │   ├── AccountService.java, AccountView.java
     │   │   └── ProfilePhoto*.java       # Photo table, and checking/cropping/re-saving uploads
     │   ├── admin/                       # The Members page: Admins.java (who), MembersController.java (/api/admin/members)
+    │   ├── notify/                      # Notifications: NotificationService (what and when), NotificationScheduler (every minute),
+    │   │                                #   PushSender, WebPushCrypto, VapidKeys, PushSubscription, NotificationController
     │   └── auth/                        # Signing in
     │       ├── SecurityConfig.java      # Who can see what, CSRF, staying signed in, sign-out, Google
     │       ├── AuthController.java      # /api/auth/...: register, sign in
@@ -469,7 +500,7 @@ start.
 
 | Limit | What happens | When it matters |
 |---|---|---|
-| [Sleeps after 15 minutes](https://render.com/docs/free) with no visitors | The next visitor waits up to about a minute while it wakes | Upgrade the web service to **Starter** (about $7/month) for always-on |
+| [Sleeps after 15 minutes](https://render.com/docs/free) with no visitors | A sleeping app can't send notifications, so `keep-awake.yml` visits it every 10 minutes. That uses about 744 of the 750 free hours a month, so it only works for one free service | Upgrade the web service to **Starter** (about $7/month) for always-on, then delete `keep-awake.yml` |
 | [The free database expires after 30 days](https://render.com/docs/free) | Render emails a warning; after a 14-day grace period the database, with every account in it, is deleted | Upgrade the database (about $6/month) **before** people rely on their accounts |
 | [Email can't be sent](https://render.com/changelog/free-web-services-will-no-longer-allow-outbound-traffic-to-smtp-ports) | Free services can't reach email servers (SMTP). The app sends no email today; it will matter for password resets | Upgrade to Starter, or send email through a service's web API (Issue #32) |
 
@@ -586,7 +617,8 @@ To bring the accounts along, copy the database across with PostgreSQL's
 - [x] React frontend (Vite + TypeScript) replacing the preview pages; adds to a phone's home screen
 - [x] Calendar caching (in memory, until midnight Central; an older copy if Orthocal is down)
 - [x] Five Orthodox styles, each light and dark; tabs that remember where you were; pull to refresh
-- [ ] `@Scheduled` 6:00 AM summaries and push notifications
+- [x] Notifications (Web Push): the day's feast, fast and readings at a time each person chooses, and a name-day greeting
+- [ ] Parish events in the daily notification (once parish events exist, Issue #18)
 - [ ] PWA install support, then Android/iOS apps with Capacitor
 - [x] Put the app online: [orthodox-daily.onrender.com](https://orthodox-daily.onrender.com) on Render (`Dockerfile`, `render.yaml`, PostgreSQL), tested in GitHub Actions before every deploy
 - [ ] Before people rely on it: upgrade Render's free database (deleted after 30 days)
@@ -603,6 +635,9 @@ To bring the accounts along, copy the database across with PostgreSQL's
 | After "Continue with Google" my password no longer works | That's on purpose: the first Google sign-in proves the email is yours, and removes a password the app couldn't check was yours. Keep using Google. |
 | I'm still being signed out | Signing out yourself, private browsing, or clearing the browser's cookies all sign you out. Otherwise you stay signed in for as long as you open the app at least once every 400 days. |
 | There's no **Members** in my Profile | Your email must be in `APP_ADMIN_EMAILS` (or `app.admin.emails` on your computer), and you must have signed in with Google at least once. |
+| No notifications on my iPhone | They work only in the app added to the Home Screen (iOS 16.4 or later), opened from there. Then Profile → Notifications → **Turn on notifications** → **Allow**, and try **Send a test notification**. If you tapped Don't Allow: iPhone Settings → Notifications → Orthodox Daily. |
+| Notifications come late | On the free plan the app may have been asleep; GitHub's keep-awake visits can run a few minutes late. Anything up to 3 hours late is still sent. |
+| No voice menu in the reading player | It appears once the device lists at least two American English voices. iPhones list theirs a moment after the app opens; start reading once, and the menu appears. |
 | I want an empty database | Stop the app and delete the `data/` folder. It's recreated on the next start. |
 | Red squiggles everywhere after opening | The Java extension is still downloading libraries. Wait, or run **Ctrl+Shift+P → Java: Clean Java Language Server Workspace**. |
 | Page says *"Could not load this day"* | Make sure the app is running and you're online. Check the VS Code terminal for an error. |

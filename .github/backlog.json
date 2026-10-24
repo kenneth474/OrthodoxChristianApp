@@ -591,6 +591,30 @@
       "notes": "Built in October 2026 (an authenticator app, and codes by text or email), then taken out on 2026-10-24 until after launch. The last version is in commit a65d129.",
       "labels": ["user story", "accounts"],
       "milestone": "Phase 3: Accounts"
+    },
+    {
+      "title": "Get a daily notification at a time I choose",
+      "story": "As a parishioner, I want a notification each day with the feast or saint, the fast and the readings, at a time I choose, so that I start each day prepared.",
+      "criteria": [
+        "Turned on per device in Profile, and off again just as easily",
+        "I choose the time; it comes at that time where I live",
+        "Works on iPhone (Home Screen app), Android and computers"
+      ],
+      "labels": ["user story", "platforms"],
+      "milestone": "Phase 5: Every platform",
+      "done": true
+    },
+    {
+      "title": "A cheerful greeting on my name day",
+      "story": "As a parishioner, I want a cheerful notification on my patron saint's feast day, so that my name day feels celebrated.",
+      "criteria": [
+        "Sent when my patron saint and their feast day are filled in on Profile",
+        "On unless I turn it off",
+        "A feast on February 29th is kept on the 28th in other years"
+      ],
+      "labels": ["user story", "accounts"],
+      "milestone": "Phase 3: Accounts",
+      "done": true
     }
   ]
 }

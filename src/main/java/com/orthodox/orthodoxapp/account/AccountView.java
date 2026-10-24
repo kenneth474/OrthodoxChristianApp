@@ -12,6 +12,7 @@ package com.orthodox.orthodoxapp.account;
  * the new picture instead of showing an old saved copy.
  *
  * admin = this person may open the Members page (see admin/Admins.java).
+ * notifyTime is "07:30" (24-hour), in the person's own time zone.
  */
 public record AccountView(
         String email,
@@ -26,7 +27,10 @@ public record AccountView(
         TextSize textSize,
         Theme theme,
         AppStyle style,
-        boolean admin) {
+        boolean admin,
+        boolean notifyDaily,
+        boolean notifyNameDay,
+        String notifyTime) {
 
     public static AccountView from(AppUser user, boolean admin) {
         return new AccountView(
@@ -42,6 +46,9 @@ public record AccountView(
                 user.getTextSize(),
                 user.getTheme(),
                 user.getStyle(),
-                admin);
+                admin,
+                user.isNotifyDaily(),
+                user.isNotifyNameDay(),
+                user.getNotifyTime().toString());
     }
 }

@@ -11,6 +11,9 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.ColumnDefault;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
 
 /**
  * AppUser: one person's account, stored as one row in the "app_user" table.
@@ -103,6 +106,20 @@ public class AppUser {
     @Enumerated(EnumType.STRING)
     private AppStyle style;
 
+    // ----- Notifications (added 2026-10-24; see notify/NotificationService) -----
+    // The daily notification (off until chosen) and the name-day greeting
+    // (on), both at notifyTime in the person's own time zone, e.g.
+    // "America/Chicago" (from their browser). lastDailySent/lastNameDaySent
+    // remember the last day each went out, so nothing is sent twice.
+    @ColumnDefault("false")
+    private boolean notifyDaily;
+    @ColumnDefault("true")
+    private boolean notifyNameDay = true;
+    private LocalTime notifyTime;
+    private String timeZone;
+    private LocalDate lastDailySent;
+    private LocalDate lastNameDaySent;
+
     @Column(nullable = false)
     private Instant createdAt;
 
@@ -188,4 +205,24 @@ public class AppUser {
 
     public AppStyle getStyle() { return style == null ? AppStyle.ILLUMINATED : style; }
     public void setStyle(AppStyle style) { this.style = style; }
+
+    public boolean isNotifyDaily() { return notifyDaily; }
+    public void setNotifyDaily(boolean notifyDaily) { this.notifyDaily = notifyDaily; }
+
+    public boolean isNotifyNameDay() { return notifyNameDay; }
+    public void setNotifyNameDay(boolean notifyNameDay) { this.notifyNameDay = notifyNameDay; }
+
+    // 7:00 in the morning until chosen.
+    public LocalTime getNotifyTime() { return notifyTime == null ? LocalTime.of(7, 0) : notifyTime; }
+    public void setNotifyTime(LocalTime notifyTime) { this.notifyTime = notifyTime; }
+
+    // Central time (most of the Archdiocese's parishes) until the browser tells us.
+    public ZoneId getTimeZone() { return timeZone == null ? ZoneId.of("America/Chicago") : ZoneId.of(timeZone); }
+    public void setTimeZone(ZoneId timeZone) { this.timeZone = timeZone.getId(); }
+
+    public LocalDate getLastDailySent() { return lastDailySent; }
+    public void setLastDailySent(LocalDate lastDailySent) { this.lastDailySent = lastDailySent; }
+
+    public LocalDate getLastNameDaySent() { return lastNameDaySent; }
+    public void setLastNameDaySent(LocalDate lastNameDaySent) { this.lastNameDaySent = lastNameDaySent; }
 }

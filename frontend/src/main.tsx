@@ -12,6 +12,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import { App } from './App'
 import { apply } from './lib/appearance'
+import { registerServiceWorker } from './lib/push'
 
 // The fonts, packed into the app (no requests to Google): EB Garamond for
 // reading, Cormorant Garamond for titles, Cinzel's carved capitals for labels.
@@ -26,6 +27,9 @@ import './styles/app.css'
 
 // Style, light/dark, season and text size (index.html did a first pass).
 apply()
+
+// The script that shows notifications (lib/push.ts, public/sw.js).
+registerServiceWorker()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

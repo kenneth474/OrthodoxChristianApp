@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PrayerBook } from '../types'
 import { addDays, isIsoDate } from './dates'
-import { forSpeaking, offeredVoices, toChunks } from './listen'
+import { forSpeaking, offeredVoices, toChunks, voiceLabel } from './listen'
 import { phoneText } from './phone'
 import { expandItems, spokenLine, timesLabel } from './prayerBook'
 import { htmlToSpeech, sanitizeHtml } from './sanitize'
@@ -80,26 +80,49 @@ describe('reading aloud', () => {
       voice('Microsoft Mark - English (United States)'),
       voice('Microsoft Aria Online (Natural) - English (United States)', 'en-US', { localService: false }),
     ]
-    expect(offeredVoices(windows).map((v) => v.name)).toEqual([
+    const offered = offeredVoices(windows)
+    expect(offered.map((v) => v.name)).toEqual([
       'Microsoft David - English (United States)',
       'Microsoft Mark - English (United States)',
       'Microsoft Zira - English (United States)',
     ])
+    expect(offered.map(voiceLabel)).toEqual(['David', 'Mark', 'Zira'])
   })
 
-  it('offers three ordinary American voices on an iPhone, skipping the joke ones', () => {
+  it('offers three American voices on a new iPhone, which has only Samantha and synthetic ones', () => {
     const iphone = [
-      voice('Aaron'),
       voice('Bubbles'),
       voice('Daniel', 'en-GB'),
+      voice('Eddy (English (US))'),
       voice('Fred'),
-      voice('Nicky'),
+      voice('Reed (English (UK))', 'en-GB'),
+      voice('Reed (English (US))'),
       voice('Samantha', 'en-US', { default: true }),
-      voice('Zarvox'),
+      voice('Sandy (English (US))'),
+      voice('Shelley (English (US))'),
       voice('Thomas', 'fr-FR'),
+      voice('Zarvox'),
+    ]
+    expect(offeredVoices(iphone).map(voiceLabel)).toEqual(['Samantha', 'Reed', 'Shelley'])
+  })
+
+  it('puts downloaded "Premium" and "Enhanced" voices first, each name once', () => {
+    const iphone = [
+      voice('Samantha'),
+      voice('Samantha (Enhanced)'),
+      voice('Reed (English (US))'),
       voice('Ava (Premium)'),
     ]
-    expect(offeredVoices(iphone).map((v) => v.name)).toEqual(['Ava (Premium)', 'Samantha', 'Aaron'])
+    expect(offeredVoices(iphone).map((v) => v.name)).toEqual(['Ava (Premium)', 'Samantha (Enhanced)', 'Reed (English (US))'])
+  })
+
+  it('never offers online voices or ones that are not American', () => {
+    const others = [
+      voice('Google US English', 'en-US', { localService: false }),
+      voice('Karen', 'en-AU'),
+      voice('Moira', 'en-IE'),
+    ]
+    expect(offeredVoices(others)).toEqual([])
   })
 })
 

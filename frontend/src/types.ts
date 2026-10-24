@@ -80,6 +80,15 @@ export interface Account {
   theme: Theme
   style: AppStyle
   admin: boolean // may open the Members page (admin/Admins.java)
+  notifyDaily: boolean // the daily notification (feast, fast, readings)
+  notifyNameDay: boolean // a greeting on the patron saint's feast day
+  notifyTime: string // when they come, "07:30" (24-hour), in the person's time zone
+}
+
+/** GET /api/notifications (NotificationController.Status). */
+export interface NotificationStatus {
+  publicKey: string // the server's key, for the browser's push subscription
+  devices: number // how many of this account's devices have notifications on
 }
 
 /** The reply to signing in or creating an account. */

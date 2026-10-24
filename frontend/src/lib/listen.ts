@@ -78,32 +78,51 @@ export function useListen(): ListenState {
 // Windows' three American voices, offered in this order.
 const WINDOWS_VOICES = ['David', 'Mark', 'Zira']
 
-// Joke and sound-effect voices that iPhones and Macs include ("Bubbles",
-// "Zarvox"...), and old robotic ones: never offered.
+// American voices on iPhones, iPads and Macs, best first. A new iPhone comes
+// with Samantha plus the synthetic "Eloquence" voices (Reed, Shelley,
+// Sandy...); better ones ("Premium", "Enhanced") appear once downloaded in
+// Settings > Accessibility > Spoken Content > Voices.
+const APPLE_VOICES = ['Samantha', 'Ava', 'Evan', 'Zoe', 'Allison', 'Tom', 'Susan', 'Nathan', 'Joelle', 'Noelle',
+  'Alex', 'Aaron', 'Nicky', 'Reed', 'Shelley', 'Sandy', 'Eddy', 'Flo', 'Rocko']
+
+// Joke and sound-effect voices that iPhones and Macs include: never offered.
 const NOVELTY_VOICES =
-  /\b(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Eddy|Flo|Fred|Good News|Grandma|Grandpa|Jester|Junior|Kathy|Organ|Ralph|Reed|Rocko|Sandy|Shelley|Superstar|Trinoids|Whisper|Wobble|Zarvox)\b/
+  /\b(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox)\b/
+
+/** A voice's short name: "Microsoft David - English (United States)" -> "David", "Reed (English (US))" -> "Reed". */
+export function voiceLabel(voice: SpeechSynthesisVoice): string {
+  return voice.name.replace(/^(Microsoft|Google|Apple)\s+/, '').split(/[\s(]/)[0] || voice.name
+}
 
 /**
- * The voices offered, at most three:
- *  - on Windows: David, Mark and Zira
- *  - elsewhere (iPhone, Mac, Android), where voices have other names: up to
- *    three American English voices, the better-sounding "Premium" and
- *    "Enhanced" ones and the device's own choice first; or other English
- *    voices if there are no American ones.
+ * The voices offered: three American English voices (fewer only if the
+ * device has fewer).
+ *  - On Windows: David, Mark and Zira.
+ *  - Elsewhere (iPhone, Mac, Android), where the voices have other names:
+ *    "Premium" and "Enhanced" voices first, then the list above, each name
+ *    once (so not "Samantha" and "Samantha (Enhanced)").
+ * Only voices stored on the device count: online ones send the text away.
  * Exported for the tests in lib.test.ts.
  */
 export function offeredVoices(all: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
-  const english = all.filter((v) => v.localService && v.lang.toLowerCase().startsWith('en'))
+  const american = all.filter(
+    (v) => v.localService && v.lang.replace('_', '-').toLowerCase() === 'en-us' && !NOVELTY_VOICES.test(v.name),
+  )
 
-  const windows = WINDOWS_VOICES.map((name) => english.find((v) => v.name.startsWith(`Microsoft ${name}`)))
+  const windows = WINDOWS_VOICES.map((name) => american.find((v) => v.name.startsWith(`Microsoft ${name}`)))
   const found = windows.filter((v): v is SpeechSynthesisVoice => v !== undefined)
   if (found.length > 0) return found
 
-  const usable = english.filter((v) => !NOVELTY_VOICES.test(v.name))
-  const american = usable.filter((v) => v.lang.replace('_', '-').toLowerCase() === 'en-us')
-  const rank = (v: SpeechSynthesisVoice) =>
-    /Premium/.test(v.name) ? 0 : /Enhanced/.test(v.name) ? 1 : v.default ? 2 : 3
-  return [...(american.length > 0 ? american : usable)].sort((a, b) => rank(a) - rank(b)).slice(0, 3)
+  const rank = (v: SpeechSynthesisVoice) => {
+    const quality = /Premium/.test(v.name) ? 0 : /Enhanced/.test(v.name) ? 1 : 2
+    const known = APPLE_VOICES.indexOf(voiceLabel(v))
+    return quality * 100 + (known === -1 ? 50 : known)
+  }
+  const offered: SpeechSynthesisVoice[] = []
+  for (const voice of [...american].sort((a, b) => rank(a) - rank(b))) {
+    if (!offered.some((v) => voiceLabel(v) === voiceLabel(voice))) offered.push(voice)
+  }
+  return offered.slice(0, 3)
 }
 
 function localVoices(): SpeechSynthesisVoice[] {
@@ -111,20 +130,23 @@ function localVoices(): SpeechSynthesisVoice[] {
   return offeredVoices(speechSynthesis.getVoices())
 }
 
+// The voice picked in the player, or else the first one offered.
 function chosenVoice(): SpeechSynthesisVoice | undefined {
   const voices = state.voices.length ? state.voices : localVoices()
-  return (
-    voices.find((v) => v.name === state.voiceName) ??
-    voices.find((v) => v.default) ??
-    voices.find((v) => v.lang === 'en-US') ??
-    voices[0]
-  )
+  return voices.find((v) => v.name === state.voiceName) ?? voices[0]
 }
 
-// Some browsers load their list of voices a moment after the page.
+// Devices can list their voices a moment after the page loads. Most say so
+// ("voiceschanged"), but iPhones don't always, so look again a few times.
+function refreshVoices() {
+  const voices = localVoices()
+  if (voices.map((v) => v.name).join() !== state.voices.map((v) => v.name).join()) setState({ voices })
+}
+
 if (listenSupported) {
-  setState({ voices: localVoices() })
-  speechSynthesis.addEventListener('voiceschanged', () => setState({ voices: localVoices() }))
+  refreshVoices()
+  speechSynthesis.addEventListener?.('voiceschanged', refreshVoices)
+  for (const wait of [300, 1000, 3000]) window.setTimeout(refreshVoices, wait)
   window.addEventListener('pagehide', () => stop()) // stop talking when leaving the page
 }
 
@@ -173,11 +195,13 @@ function speakNext() {
   }
   const utterance = new SpeechSynthesisUtterance(chunks[index])
   const voice = chosenVoice()
-  if (voice) {
-    utterance.voice = voice
-    utterance.lang = voice.lang
-  }
+  // With no voices listed yet (iPhones, sometimes), asking for American
+  // English still gets the device's American voice.
+  utterance.lang = 'en-US'
+  if (voice) utterance.voice = voice
   utterance.rate = Number(state.rate)
+  // Once speech starts, an iPhone has surely listed its voices: show them.
+  utterance.onstart = refreshVoices
 
   // When this piece finishes, move on, unless it was cancelled (Pause, Stop,
   // a new voice), which some browsers also report as "finished".
@@ -193,10 +217,12 @@ function speakNext() {
   speechSynthesis.speak(utterance)
 }
 
-// Cancels whatever is being said, so its events are ignored.
+// Cancels whatever is being said, so its events are ignored. (Only when
+// something is being said: an iPhone can drop a new sentence that comes
+// straight after a cancel.)
 function silence() {
   turn++
-  if (listenSupported) speechSynthesis.cancel()
+  if (listenSupported && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel()
 }
 
 /** Start reading a text aloud; the player bar shows the title. */
@@ -205,7 +231,8 @@ export function play(title: string, text: string) {
   silence()
   chunks = toChunks(text)
   index = 0
-  setState({ playing: true, paused: false, title, voices: localVoices() })
+  setState({ playing: true, paused: false, title })
+  refreshVoices()
   speakNext()
 }
 

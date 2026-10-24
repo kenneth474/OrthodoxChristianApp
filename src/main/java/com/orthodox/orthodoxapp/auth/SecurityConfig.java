@@ -60,11 +60,13 @@ public class SecurityConfig {
             // a new page or endpoint is private until we decide otherwise.
             .authorizeHttpRequests(auth -> auth
                 // The React app: its page, its files (built by Vite into assets/),
-                // the home-screen icons, the prayer book data and the privacy
-                // policy. Every screen's address is public too; screens that need
-                // an account ask the API, which answers 401 when you're not signed in.
+                // the home-screen icons, the prayer book data, the service worker
+                // that shows notifications, and the privacy policy. Every screen's
+                // address is public too; screens that need an account ask the API,
+                // which answers 401 when you're not signed in.
                 .requestMatchers("/", "/index.html", "/assets/**", "/icons/**", "/data/**",
-                        "/manifest.webmanifest", "/favicon.ico", "/privacy", "/privacy.html", "/error").permitAll()
+                        "/manifest.webmanifest", "/favicon.ico", "/sw.js", "/privacy", "/privacy.html",
+                        "/error").permitAll()
                 .requestMatchers("/bible", "/bible/**", "/prayers", "/prayers/**", "/church", "/church/**",
                         "/profile", "/profile/**", "/sign-in").permitAll()
                 .requestMatchers("/api/today", "/api/day/**", "/api/bible/**", "/api/auth/**").permitAll()
